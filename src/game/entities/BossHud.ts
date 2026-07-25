@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { GAME_WIDTH } from '../constants';
 
 const HUD_DEPTH = 200;
 const BAR_WIDTH = 320;
@@ -22,7 +21,7 @@ export class BossHud {
     this.scene = scene;
     this.maxHp = maxHp;
 
-    const cx = GAME_WIDTH / 2;
+    const cx = scene.scale.width / 2;
     const panel = scene.add.rectangle(cx, 40, BAR_WIDTH + 44, 74, 0x0c0a09, 0.72);
     panel.setStrokeStyle(2, 0x84cc16, 0.8);
 

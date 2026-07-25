@@ -128,9 +128,12 @@ export function GameCanvas({
 
   return (
     <OrientationGate>
-    <div className="min-h-screen flex flex-col bg-slate-900">
+    <div
+      className="relative h-[100dvh] flex flex-col bg-slate-900 overflow-hidden select-none"
+      onContextMenu={(e) => e.preventDefault()}
+    >
       {/* HUD */}
-      <div className="w-full max-w-[800px] mx-auto flex items-center justify-between gap-2 px-3 pt-3 pb-2 sm:px-4">
+      <div className="relative z-20 w-full max-w-[800px] mx-auto flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 sm:px-4 flex-shrink-0">
         <div className="flex items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg">
             <Trophy size={18} className="text-yellow-400" />
@@ -188,7 +191,7 @@ export function GameCanvas({
 
       {/* Eco Power meter */}
       {ecoPower && !ecoPower.used && (
-        <div className="w-full max-w-[800px] mx-auto px-3 sm:px-4 pb-1">
+        <div className="relative z-20 w-full max-w-[800px] mx-auto px-3 sm:px-4 pb-1 flex-shrink-0">
           <div className="flex items-center gap-2">
             <div
               className={`flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0 ${skillReady ? 'animate-pulse' : ''}`}
@@ -233,31 +236,36 @@ export function GameCanvas({
         </div>
       )}
 
-      {/* Skill activation button — appears only when charged */}
+      {/* Skill activation button — appears only when charged (above the jump button) */}
       {skillReady && ecoPower && (
         <button
           onClick={handleSkill}
+          onContextMenu={(e) => e.preventDefault()}
+          draggable={false}
           aria-label={`Aktifkan ${ecoPower.skillName}`}
-          className="fixed z-50 bottom-28 right-4 sm:bottom-32 sm:right-6 w-20 h-20 rounded-full flex flex-col items-center justify-center text-white font-extrabold shadow-2xl active:scale-90 transition-transform touch-none animate-skill-ready"
+          className="absolute z-40 bottom-24 right-3 sm:bottom-28 sm:right-6 w-[70px] h-[70px] sm:w-20 sm:h-20 rounded-full flex flex-col items-center justify-center text-white font-extrabold shadow-2xl active:scale-90 transition-transform touch-none animate-skill-ready"
           style={{
             background: `radial-gradient(circle at 35% 30%, ${ecoPower.cssColor}, ${ecoPower.cssColor}cc)`,
             boxShadow: `0 0 24px ${ecoPower.cssColor}, 0 6px 16px rgba(0,0,0,0.4)`,
             border: '3px solid rgba(255,255,255,0.8)',
+            WebkitTouchCallout: 'none',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
           }}
         >
-          <SkillIcon size={30} />
+          <SkillIcon size={28} />
           <span className="text-[9px] mt-0.5 tracking-wide">
             {isTouch ? 'SKILL' : 'TEKAN X'}
           </span>
         </button>
       )}
 
-      {/* Phaser canvas container */}
-      <div className="flex-1 flex items-center justify-center min-h-0 px-2">
+      {/* Phaser canvas container — fills the full remaining area; the game is
+          sized to this container's aspect so it never pillar-boxes */}
+      <div className="flex-1 min-h-0 px-1 pb-1">
         <div
           ref={containerRef}
-          className="relative w-full max-w-[800px] rounded-xl overflow-hidden shadow-2xl border-2 border-slate-700"
-          style={{ aspectRatio: '800 / 480', maxHeight: '100%' }}
+          className="relative w-full h-full rounded-lg overflow-hidden shadow-2xl border border-slate-700"
         />
       </div>
 
@@ -273,10 +281,10 @@ export function GameCanvas({
         </div>
       )}
 
-      {/* Mobile controls */}
+      {/* Mobile controls — floating overlays so they never push the game off-screen */}
       {isTouch && (
-        <div className="flex items-center justify-between w-full max-w-[800px] mx-auto px-3 pb-3 pt-2 select-none">
-          <div className="flex gap-2">
+        <>
+          <div className="absolute bottom-3 left-3 z-30 flex gap-2">
             <TouchButton onPress={(p) => handleMobile('left', p)} ariaLabel="Kiri">
               <ArrowLeft size={28} />
             </TouchButton>
@@ -284,10 +292,12 @@ export function GameCanvas({
               <ArrowRight size={28} />
             </TouchButton>
           </div>
-          <TouchButton onPress={(p) => handleMobile('jump', p)} ariaLabel="Lompat" variant="jump">
-            <ArrowUp size={32} />
-          </TouchButton>
-        </div>
+          <div className="absolute bottom-3 right-3 z-30">
+            <TouchButton onPress={(p) => handleMobile('jump', p)} ariaLabel="Lompat" variant="jump">
+              <ArrowUp size={32} />
+            </TouchButton>
+          </div>
+        </>
       )}
     </div>
     </OrientationGate>
@@ -317,16 +327,25 @@ function TouchButton({
     },
     onPointerCancel: () => onPress(false),
     onPointerLeave: () => onPress(false),
+    // A long-press on touch would otherwise pop the browser's callout / context menu.
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
   };
 
   return (
     <button
       {...handlers}
+      draggable={false}
       aria-label={ariaLabel}
-      className={`flex items-center justify-center text-white font-bold touch-none transition-transform active:scale-95 ${
+      style={{
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
+        textShadow: '0 1px 2px rgba(0,0,0,0.6)',
+      }}
+      className={`flex items-center justify-center text-white font-bold touch-none select-none backdrop-blur-sm border transition-transform active:scale-95 ${
         variant === 'jump'
-          ? 'w-20 h-20 rounded-full bg-green-600 active:bg-green-500 shadow-lg'
-          : 'w-16 h-16 rounded-2xl bg-slate-700 active:bg-slate-600'
+          ? 'w-[72px] h-[72px] rounded-full bg-green-600/45 border-white/40 active:bg-green-500/70 shadow-lg'
+          : 'w-16 h-16 rounded-2xl bg-slate-700/40 border-white/30 active:bg-slate-600/70'
       }`}
     >
       {children}

@@ -12,11 +12,27 @@ export interface PhaserGameConfig {
   skinId?: string;
 }
 
+/**
+ * Widen the design resolution to match the container's aspect ratio (keeping
+ * the fixed world height) so Phaser's FIT scaler fills the screen edge-to-edge
+ * on any device instead of pillar-boxing. The camera simply reveals more of the
+ * side-scrolling level horizontally.
+ */
+function computeGameWidth(parent: HTMLElement): number {
+  const w = parent.clientWidth;
+  const h = parent.clientHeight;
+  const aspect = w > 0 && h > 0 ? w / h : GAME_WIDTH / GAME_HEIGHT;
+  const width = Math.round(GAME_HEIGHT * aspect);
+  // Never narrower than the authored design; cap so ultra-wide screens don't
+  // reveal an unfair amount of the level.
+  return Math.max(GAME_WIDTH, Math.min(1400, width));
+}
+
 export function createGame(config: PhaserGameConfig): Phaser.Game {
   const game = new Phaser.Game({
     type: Phaser.AUTO,
     parent: config.parent,
-    width: GAME_WIDTH,
+    width: computeGameWidth(config.parent),
     height: GAME_HEIGHT,
     backgroundColor: '#87ceeb',
     physics: {

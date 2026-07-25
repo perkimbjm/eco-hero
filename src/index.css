@@ -100,6 +100,14 @@ canvas {
   touch-action: none;
 }
 
+/* Stop the browser's long-press callout / selection on game controls and canvas. */
+button,
+canvas {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 /* Phaser canvas should fill its container */
 canvas {
   display: block;

@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import { LEVELS, ACHIEVEMENTS } from '../levels';
 import {
-  GAME_WIDTH,
   GAME_HEIGHT,
   JUMP_VELOCITY,
   DOUBLE_JUMP_VELOCITY,
@@ -1185,11 +1184,12 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   private showEducationBanner(text: string, cssColor: string): void {
-    const bg = this.add.rectangle(GAME_WIDTH / 2, 150, 560, 66, 0x0f172a, 0.85);
+    const cx = this.scale.width / 2;
+    const bg = this.add.rectangle(cx, 150, 560, 66, 0x0f172a, 0.85);
     bg.setScrollFactor(0);
     bg.setDepth(215);
     bg.setStrokeStyle(2, this.skill.color, 1);
-    const txt = this.add.text(GAME_WIDTH / 2, 150, text, {
+    const txt = this.add.text(cx, 150, text, {
       fontFamily: 'system-ui, sans-serif',
       fontSize: '15px',
       color: cssColor,
@@ -2090,7 +2090,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       const camScroll = this.cameras.main.scrollX;
       for (let i = 0; i < 3; i++) {
         const streak = this.add.graphics();
-        const x = camScroll + Math.random() * GAME_WIDTH;
+        const x = camScroll + Math.random() * this.scale.width;
         const y = 60 + Math.random() * (GAME_HEIGHT - 140);
         const len = 30 + Math.random() * 50;
         streak.lineStyle(2, 0xffffff, 0.5);
@@ -2208,7 +2208,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       const camScroll = this.cameras.main.scrollX;
       for (let i = 0; i < 20; i++) {
         const p = this.add.circle(
-          camScroll + Math.random() * GAME_WIDTH,
+          camScroll + Math.random() * this.scale.width,
           Math.random() * GAME_HEIGHT,
           20 + Math.random() * 30,
           0x57534e,
@@ -2229,7 +2229,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   private showChallengeWarning(text: string, color = '#fbbf24'): void {
-    const warning = this.add.text(GAME_WIDTH / 2, 110, text, {
+    const warning = this.add.text(this.scale.width / 2, 110, text, {
       fontFamily: 'Arial',
       fontSize: '20px',
       color,
