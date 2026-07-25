@@ -1,3 +1,5 @@
+import type { SkillElement } from './skills';
+
 export interface EcoRank {
   id: string;
   name: string;
@@ -80,6 +82,8 @@ export interface SkinDef {
   name: string;
   description: string;
   price: number;
+  /** Elemental Eco Power skill this character grants. */
+  skill: SkillElement;
   colors: {
     body: number;
     bodyLight: number;
@@ -95,9 +99,10 @@ export interface SkinDef {
 export const SKINS: SkinDef[] = [
   {
     id: 'default',
-    name: 'Eco Hero',
-    description: 'Pahlawan bumi andalan dengan topi merah',
+    name: 'Green Guardian',
+    description: 'Pahlawan bumi andalan. Skill: Green Blast — gelombang energi hijau pembersih polusi.',
     price: 0,
+    skill: 'green',
     colors: {
       body: 0x15803d, bodyLight: 0x22c55e, head: 0xfde68a,
       cap: 0xdc2626, capBrim: 0xef4444, belt: 0xfacc15,
@@ -106,9 +111,10 @@ export const SKINS: SkinDef[] = [
   },
   {
     id: 'forest',
-    name: 'Forest Guardian',
-    description: 'Penjaga hutan dengan nuansa hijau lembut',
+    name: 'Wind Guardian',
+    description: 'Penjaga angin hutan. Skill: Clean Wind — terbang sesaat & tarik sampah ringan.',
     price: 200,
+    skill: 'wind',
     colors: {
       body: 0x166534, bodyLight: 0x86efac, head: 0xfde68a,
       cap: 0x15803d, capBrim: 0x22c55e, belt: 0x84cc16,
@@ -117,9 +123,10 @@ export const SKINS: SkinDef[] = [
   },
   {
     id: 'ocean',
-    name: 'Ocean Guardian',
-    description: 'Penjaga laut dengan warna biru samudra',
+    name: 'Aqua Guardian',
+    description: 'Penjaga air & sungai. Skill: River Clean Wave — tarik sampah dari jarak jauh.',
     price: 350,
+    skill: 'aqua',
     colors: {
       body: 0x0e7490, bodyLight: 0x67e8f9, head: 0xfde68a,
       cap: 0x0284c7, capBrim: 0x38bdf8, belt: 0x06b6d4,
@@ -128,9 +135,10 @@ export const SKINS: SkinDef[] = [
   },
   {
     id: 'recycle',
-    name: 'Recycle Master',
-    description: 'Sang ahli daur ulang dengan warna kuning cerah',
+    name: 'Fire Guardian',
+    description: 'Ahli panas daur ulang. Skill: Recycle Heat — kalahkan seluruh polusi seketika.',
     price: 500,
+    skill: 'fire',
     colors: {
       body: 0xca8a04, bodyLight: 0xfde047, head: 0xfde68a,
       cap: 0x65a30d, capBrim: 0x84cc16, belt: 0x422006,
@@ -139,13 +147,26 @@ export const SKINS: SkinDef[] = [
   },
   {
     id: 'future',
-    name: 'Future Earth Hero',
-    description: 'Pahlawan masa depan dengan teknologi nano',
+    name: 'Lightning Guardian',
+    description: 'Pahlawan pemindai berteknologi nano. Skill: Eco Scanner — tandai sampah tersembunyi & bonus skor.',
     price: 800,
+    skill: 'lightning',
     colors: {
       body: 0x6366f1, bodyLight: 0xa5b4fc, head: 0xe0e7ff,
       cap: 0x0891b2, capBrim: 0x06b6d4, belt: 0x1e293b,
       legs: 0x1e293b, shoes: 0x0f172a,
+    },
+  },
+  {
+    id: 'terra',
+    name: 'Earth Guardian',
+    description: 'Penjaga bumi berperisai. Skill: Recycle Shield — kebal & hancurkan bahaya lingkungan.',
+    price: 650,
+    skill: 'earth',
+    colors: {
+      body: 0x92400e, bodyLight: 0xd97706, head: 0xfde68a,
+      cap: 0x78350f, capBrim: 0xa16207, belt: 0x84cc16,
+      legs: 0x451a03, shoes: 0x292524,
     },
   },
 ];

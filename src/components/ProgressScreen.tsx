@@ -6,6 +6,7 @@ import {
   ECO_RANKS, getRankForXp, getRankProgress, SKINS, BADGES,
   type PlayerProgressData,
 } from '@/game/progression';
+import { getSkill } from '@/game/skills';
 import {
   fetchPlayerProgress, createPlayerProgress, purchaseSkin, equipSkin,
   type PlayerProgressRow,
@@ -222,6 +223,12 @@ export function ProgressScreen({ playerName, onHome }: ProgressScreenProps) {
                     )}
                   </div>
                   <div className="text-white font-bold text-xs mb-1">{skin.name}</div>
+                  <div
+                    className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded mb-1"
+                    style={{ background: `${getSkill(skin.skill).cssColor}22`, color: getSkill(skin.skill).cssColor }}
+                  >
+                    <Sparkles size={9} /> {getSkill(skin.skill).name}
+                  </div>
                   <p className="text-slate-400 text-[10px] leading-tight mb-2 h-8 overflow-hidden">{skin.description}</p>
                   {owned ? (
                     <button

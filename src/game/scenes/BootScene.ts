@@ -8,6 +8,7 @@ interface BootData {
     levelIndex: number;
     callbacks: GameCallbacks;
     carriedStats?: Partial<GameStats>;
+    skinId?: string;
   };
 }
 

@@ -30,7 +30,13 @@ import {
   COMBO_MAX,
   TIME_BONUS_PCT,
 } from '../constants';
-import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, getRankForXp } from '../progression';
+import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, getRankForXp, getSkinById } from '../progression';
+import {
+  ECO_POWER_MAX,
+  ECO_POWER_GAIN,
+  getSkill,
+  type SkillDef,
+} from '../skills';
 import type {
   LevelDef,
   GameStats,
@@ -136,6 +142,18 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   private effectTimers: Record<string, number> = {};
   private bgGraphics!: Phaser.GameObjects.Graphics;
 
+  // ── Eco Power / Skill system ──────────────────────────────
+  private skinId = 'default';
+  private skill!: SkillDef;
+  private ecoPower = 0;
+  private skillReady = false;
+  private skillUsed = false;
+  private keySkill?: Phaser.Input.Keyboard.Key;
+  private skillHeld = false;
+  /** While > time.now the Wind skill keeps the player aloft. */
+  private flightUntil = 0;
+  private flying = false;
+
   constructor() {
     super('GameScene');
   }
@@ -144,10 +162,20 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     levelIndex: number;
     callbacks: GameCallbacks;
     carriedStats?: Partial<GameStats>;
+    skinId?: string;
   }): void {
     this.levelIndex = data.levelIndex;
     this.callbacks = data.callbacks;
     this.carriedStats = data.carriedStats ?? {};
+    this.skinId = data.skinId ?? 'default';
+    const skin = getSkinById(this.skinId) ?? getSkinById('default')!;
+    this.skill = getSkill(skin.skill);
+    this.ecoPower = 0;
+    this.skillReady = false;
+    this.skillUsed = false;
+    this.skillHeld = false;
+    this.flightUntil = 0;
+    this.flying = false;
     this.state = 'playing';
     this.goalReached = false;
     this.goalFlag = null;
@@ -222,6 +250,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.setupInput();
     this.setupCamera();
     this.setupColliders();
+
+    this.emitEcoPower();
 
     sound.startMusic();
     this.events.on('shutdown', () => {
@@ -648,6 +678,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       onComplete: () => sprite.destroy(),
     });
     this.player.setVelocityY(BOUNCE_VELOCITY);
+    this.addEcoPower(ECO_POWER_GAIN.flyingEnemy);
     this.checkAchievements();
     this.emitStats();
   }
@@ -744,9 +775,446 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     }
     if (options.trashPickup) {
       this.stats.trashCollected++;
+      this.addEcoPower(ECO_POWER_GAIN.trash);
+    }
+    if (options.flyingKill) {
+      this.addEcoPower(ECO_POWER_GAIN.flyingEnemy);
     }
     this.checkAchievements();
     this.emitStats();
+  }
+
+  // ── Eco Power / Skill system ──────────────────────────────
+
+  /** Charges the Eco Power meter from a positive action. */
+  private addEcoPower(amount: number): void {
+    if (this.skillUsed || this.state !== 'playing') return;
+    if (this.ecoPower >= ECO_POWER_MAX) return;
+    this.ecoPower = Math.min(ECO_POWER_MAX, this.ecoPower + amount);
+    if (this.ecoPower >= ECO_POWER_MAX && !this.skillReady) {
+      this.skillReady = true;
+      this.onSkillReady();
+    }
+    this.emitEcoPower();
+  }
+
+  private emitEcoPower(): void {
+    // A torn-down / re-created scene can reach here before init() has run; a
+    // HUD update must never crash the game.
+    if (!this.callbacks || !this.skill) return;
+    this.callbacks.onEcoPowerChange?.({
+      power: this.ecoPower,
+      max: ECO_POWER_MAX,
+      ready: this.skillReady,
+      used: this.skillUsed,
+      skillName: this.skill.name,
+      guardian: this.skill.guardian,
+      education: this.skill.education,
+      cssColor: this.skill.cssColor,
+      icon: this.skill.icon,
+    });
+  }
+
+  private onSkillReady(): void {
+    sound.playSkillReady();
+    this.showChallengeWarning(`⚡ Eco Power Siap! ${this.skill.name}`, this.skill.cssColor);
+    const glow = this.add.circle(this.player.x, this.player.y, 28, this.skill.color, 0.5);
+    glow.setDepth(9);
+    this.tweens.add({
+      targets: glow,
+      radius: 64,
+      alpha: 0,
+      duration: 700,
+      ease: 'Cubic.out',
+      onComplete: () => glow.destroy(),
+    });
+  }
+
+  /** Fires the equipped character's skill (X key / mobile skill button). */
+  public activateSkill(): void {
+    if (this.state !== 'playing') return;
+    if (!this.skillReady || this.skillUsed) return;
+
+    this.skillUsed = true;
+    this.skillReady = false;
+    this.ecoPower = 0;
+
+    sound.playSkillActivate();
+    this.playSkillCinematic();
+
+    switch (this.skill.element) {
+      case 'green': this.skillGreenBlast(); break;
+      case 'aqua': this.skillRiverWave(); break;
+      case 'wind': this.skillCleanWind(); break;
+      case 'fire': this.skillRecycleHeat(); break;
+      case 'lightning': this.skillEcoScanner(); break;
+      case 'earth': this.skillRecycleShield(); break;
+    }
+
+    this.time.delayedCall(650, () => {
+      if (this.state === 'playing') {
+        this.showEducationBanner(this.skill.education, this.skill.cssColor);
+      }
+    });
+
+    this.checkAchievements();
+    this.emitEcoPower();
+    this.emitStats();
+  }
+
+  private playSkillCinematic(): void {
+    const color = this.skill.color;
+    const { player } = this;
+    const r = (color >> 16) & 0xff;
+    const g = (color >> 8) & 0xff;
+    const b = color & 0xff;
+
+    this.cameras.main.flash(350, r, g, b);
+    this.cameras.main.shake(420, 0.006);
+
+    // Expanding shockwave rings from the hero
+    for (let i = 0; i < 3; i++) {
+      const ring = this.add.circle(player.x, player.y, 18, color, 0);
+      ring.setStrokeStyle(6, color, 0.9);
+      ring.setDepth(80);
+      this.tweens.add({
+        targets: ring,
+        radius: 230,
+        alpha: 0,
+        delay: i * 120,
+        duration: 720,
+        ease: 'Cubic.out',
+        onComplete: () => ring.destroy(),
+      });
+    }
+
+    // Radial burst of light particles
+    for (let i = 0; i < 28; i++) {
+      const ang = (Math.PI * 2 * i) / 28;
+      const dist = 120 + Math.random() * 90;
+      const p = this.add.image(player.x, player.y, 'particle');
+      p.setTint(i % 2 === 0 ? color : this.skill.colorLight);
+      p.setDepth(81);
+      p.setScale(0.6 + Math.random() * 0.6);
+      this.tweens.add({
+        targets: p,
+        x: player.x + Math.cos(ang) * dist,
+        y: player.y + Math.sin(ang) * dist,
+        alpha: 0,
+        scale: 0,
+        duration: 600 + Math.random() * 300,
+        ease: 'Cubic.out',
+        onComplete: () => p.destroy(),
+      });
+    }
+
+    // Hero aura + pulse
+    const aura = this.add.circle(player.x, player.y, 32, color, 0.5);
+    aura.setDepth(9);
+    this.tweens.add({
+      targets: aura,
+      radius: 72,
+      alpha: 0,
+      duration: 600,
+      onComplete: () => aura.destroy(),
+    });
+    this.tweens.add({
+      targets: player,
+      scale: { from: 1.45, to: 1 },
+      duration: 500,
+      ease: 'Back.out',
+    });
+
+    this.floatText(player.x, player.y - 58, `${this.skill.name}!`, this.skill.cssColor);
+  }
+
+  // ── Individual skill effects ──────────────────────────────
+
+  private skillGreenBlast(): void {
+    const radius = 280;
+    this.absorbTrashInRadius(this.player.x, this.player.y, radius);
+    this.defeatEnemiesInRadius(this.player.x, this.player.y, radius);
+    this.grantShield(this.skill.durationMs);
+    this.banner('Perlindungan hijau aktif!', this.skill.cssColor);
+  }
+
+  private skillRiverWave(): void {
+    let pulled = 0;
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      t.trashData.collected = true;
+      if (t.body) t.body.enable = false;
+      pulled++;
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y);
+      this.tweens.add({
+        targets: t,
+        x: this.player.x,
+        y: this.player.y,
+        duration: 320 + dist * 0.35,
+        ease: 'Cubic.in',
+        onComplete: () => this.creditTrash(t),
+      });
+    });
+    this.giantFlies?.purge(this.player.x, this.player.y, 500);
+    if (pulled === 0) {
+      this.floatText(this.player.x, this.player.y - 40, 'Area sudah bersih!', this.skill.cssColor);
+    }
+  }
+
+  private skillCleanWind(): void {
+    this.flying = true;
+    this.flightUntil = this.time.now + this.skill.durationMs;
+    if (this.player.body) {
+      (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    }
+    this.player.setVelocityY(-120);
+
+    // Pull nearby light trash (plastic & paper) into the updraft.
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      if (t.trashData.type !== 'plastic' && t.trashData.type !== 'paper') return;
+      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y) > 360) return;
+      t.trashData.collected = true;
+      if (t.body) t.body.enable = false;
+      this.tweens.add({
+        targets: t,
+        x: this.player.x,
+        y: this.player.y,
+        duration: 400,
+        ease: 'Cubic.in',
+        onComplete: () => this.creditTrash(t),
+      });
+    });
+    this.banner('Terbang! Tahan Lompat untuk naik', this.skill.cssColor);
+  }
+
+  private skillRecycleHeat(): void {
+    // Radius 0 => the whole level.
+    this.defeatEnemiesInRadius(this.player.x, this.player.y, 0);
+    this.banner('Seluruh polusi dikalahkan!', this.skill.cssColor);
+  }
+
+  private skillEcoScanner(): void {
+    let found = 0;
+    this.secretGroup.getChildren().forEach((obj) => {
+      const s = obj as SecretSprite;
+      if (s.secretData.collected) return;
+      found++;
+      this.pingLocation(s.x, s.y, this.skill.color);
+    });
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      this.pingLocation(t.x, t.y, this.skill.colorLight);
+    });
+
+    const bonus = 500 + found * 300;
+    this.stats.score += bonus;
+    this.xpInLevel += XP_REWARDS.secret;
+    this.coinsInLevel += COIN_REWARDS.secret;
+    this.floatText(this.player.x, this.player.y - 58, `Scan! +${bonus}`, this.skill.cssColor);
+    this.emitStats();
+  }
+
+  private skillRecycleShield(): void {
+    this.grantShield(this.skill.durationMs);
+    this.invincibleUntil = Math.max(this.invincibleUntil, this.time.now + this.skill.durationMs);
+    this.toxicWaste?.clear(this.player.x, this.player.y, 0);
+    this.giantFlies?.purge(this.player.x, this.player.y, 0);
+    this.defeatEnemiesInRadius(this.player.x, this.player.y, 260);
+    this.banner('Perisai daur ulang aktif — kebal!', this.skill.cssColor);
+  }
+
+  // ── Skill helpers ─────────────────────────────────────────
+
+  private grantShield(durationMs: number): void {
+    if (!this.activeEffects.includes('shield')) this.activeEffects.push('shield');
+    this.effectTimers['shield'] = Math.max(
+      this.effectTimers['shield'] ?? 0,
+      this.time.now + durationMs
+    );
+  }
+
+  private absorbTrashInRadius(x: number, y: number, radius: number): void {
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      if (radius > 0 && Phaser.Math.Distance.Between(x, y, t.x, t.y) > radius) return;
+      t.trashData.collected = true;
+      if (t.body) t.body.enable = false;
+      this.creditTrash(t);
+    });
+  }
+
+  /** Awards a piece of trash without touching combo or Eco Power (skill pickup). */
+  private creditTrash(sprite: TrashSprite): void {
+    const colorHex = TRASH_COLORS[sprite.trashData.type as keyof typeof TRASH_COLORS];
+    const color = parseInt(colorHex.main.slice(1), 16);
+    this.stats.score += TRASH_SCORE;
+    this.stats.trashCollected++;
+    this.trashCollectedInLevel++;
+    this.xpInLevel += XP_REWARDS.trash;
+    this.coinsInLevel += COIN_REWARDS.trash;
+    this.burst(sprite.x, sprite.y, color, 8);
+    sprite.destroy();
+    this.emitStats();
+  }
+
+  private defeatEnemiesInRadius(x: number, y: number, radius: number): void {
+    this.enemyGroup.getChildren().forEach((obj) => {
+      const e = obj as EnemySprite;
+      if (!e.enemyData.alive) return;
+      if (radius > 0 && Phaser.Math.Distance.Between(x, y, e.x, e.y) > radius) return;
+      this.defeatEnemyViaSkill(e);
+    });
+    this.flyingEnemyGroup.getChildren().forEach((obj) => {
+      const s = obj as Phaser.Physics.Arcade.Sprite;
+      if (!s.getData('alive')) return;
+      if (radius > 0 && Phaser.Math.Distance.Between(x, y, s.x, s.y) > radius) return;
+      this.defeatFlyingViaSkill(s);
+    });
+    this.giantFlies?.purge(x, y, radius);
+  }
+
+  private defeatEnemyViaSkill(enemy: EnemySprite): void {
+    enemy.enemyData.alive = false;
+    enemy.setVelocity(0, 0);
+    if (enemy.body) enemy.body.enable = false;
+    enemy.setTexture('enemy_defeated');
+    this.stats.score += ENEMY_SCORE;
+    this.stats.enemiesDefeated++;
+    this.enemiesDefeatedInLevel++;
+    this.xpInLevel += XP_REWARDS.enemy;
+    this.coinsInLevel += COIN_REWARDS.enemy;
+    this.burst(enemy.x, enemy.y, this.skill.color, 12);
+    this.tweens.add({
+      targets: enemy,
+      alpha: 0,
+      y: enemy.y + 5,
+      scale: 0.8,
+      duration: 500,
+      delay: 200,
+      onComplete: () => enemy.destroy(),
+    });
+    this.emitStats();
+  }
+
+  private defeatFlyingViaSkill(sprite: Phaser.Physics.Arcade.Sprite): void {
+    sprite.setData('alive', false);
+    if (sprite.body) sprite.body.enable = false;
+    this.stats.score += ENEMY_SCORE;
+    this.stats.enemiesDefeated++;
+    this.flyingEnemiesDefeatedInLevel++;
+    this.xpInLevel += XP_REWARDS.flyingEnemy;
+    this.coinsInLevel += COIN_REWARDS.flyingEnemy;
+    this.burst(sprite.x, sprite.y, this.skill.color, 10);
+    this.tweens.add({
+      targets: sprite,
+      alpha: 0,
+      scale: 1.4,
+      y: sprite.y - 20,
+      duration: 400,
+      onComplete: () => sprite.destroy(),
+    });
+    this.emitStats();
+  }
+
+  private pingLocation(x: number, y: number, color: number): void {
+    const beacon = this.add.circle(x, y, 6, color, 0.9);
+    beacon.setDepth(70);
+    const ring = this.add.circle(x, y, 8, color, 0);
+    ring.setStrokeStyle(3, color, 1);
+    ring.setDepth(70);
+    const beam = this.add.rectangle(x, y - 38, 4, 76, color, 0.4);
+    beam.setDepth(69);
+    this.tweens.add({
+      targets: ring,
+      radius: 30,
+      alpha: 0,
+      duration: 900,
+      repeat: 2,
+      onComplete: () => ring.destroy(),
+    });
+    this.tweens.add({
+      targets: beacon,
+      alpha: 0.3,
+      yoyo: true,
+      repeat: 5,
+      duration: 300,
+      onComplete: () => beacon.destroy(),
+    });
+    this.tweens.add({
+      targets: beam,
+      alpha: 0,
+      duration: 1400,
+      onComplete: () => beam.destroy(),
+    });
+  }
+
+  private updateFlight(now: number, jumpDown: boolean): void {
+    if (now > this.flightUntil) {
+      this.endFlight();
+      return;
+    }
+    if (!this.player.body) return;
+    this.player.setVelocityY(jumpDown ? -240 : 70);
+    if (Math.random() < 0.4) {
+      const p = this.add.image(this.player.x, this.player.y + 12, 'particle');
+      p.setTint(this.skill.colorLight);
+      p.setDepth(8);
+      p.setScale(0.5);
+      this.tweens.add({
+        targets: p,
+        y: p.y + 22,
+        alpha: 0,
+        duration: 420,
+        onComplete: () => p.destroy(),
+      });
+    }
+  }
+
+  private endFlight(): void {
+    if (!this.flying) return;
+    this.flying = false;
+    if (this.player.body) {
+      (this.player.body as Phaser.Physics.Arcade.Body).setAllowGravity(true);
+    }
+    this.banner('Pendaratan!', this.skill.cssColor);
+  }
+
+  private showEducationBanner(text: string, cssColor: string): void {
+    const bg = this.add.rectangle(GAME_WIDTH / 2, 150, 560, 66, 0x0f172a, 0.85);
+    bg.setScrollFactor(0);
+    bg.setDepth(215);
+    bg.setStrokeStyle(2, this.skill.color, 1);
+    const txt = this.add.text(GAME_WIDTH / 2, 150, text, {
+      fontFamily: 'system-ui, sans-serif',
+      fontSize: '15px',
+      color: cssColor,
+      fontStyle: 'bold',
+      align: 'center',
+      wordWrap: { width: 520 },
+      stroke: '#000',
+      strokeThickness: 3,
+    });
+    txt.setOrigin(0.5);
+    txt.setScrollFactor(0);
+    txt.setDepth(216);
+    bg.setAlpha(0);
+    txt.setAlpha(0);
+    this.tweens.add({
+      targets: [bg, txt],
+      alpha: 1,
+      duration: 300,
+      hold: 2800,
+      yoyo: true,
+      onComplete: () => {
+        bg.destroy();
+        txt.destroy();
+      },
+    });
   }
 
   // ── Boosts ────────────────────────────────────────────────
@@ -842,6 +1310,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     if (this.combo >= 2) {
       this.floatText(this.player.x, this.player.y - 40, `x${this.combo} COMBO!`, '#facc15');
     }
+    if (this.combo >= 3) {
+      this.addEcoPower(ECO_POWER_GAIN.combo);
+    }
   }
 
   private updateCombo(): void {
@@ -930,6 +1401,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.keyJump = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
       this.keyLeft = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
       this.keyRight = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+      this.keySkill = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
     }
   }
 
@@ -1053,6 +1525,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.floatScore(sprite.x, sprite.y - 10, `+${totalScore}`, colorHex.light);
     }
     sprite.destroy();
+    this.addEcoPower(ECO_POWER_GAIN.trash);
     this.checkAchievements();
     this.emitStats();
   }
@@ -1093,6 +1566,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       });
     }
     sprite.destroy();
+    this.addEcoPower(ECO_POWER_GAIN.secret);
     this.checkAchievements();
     this.emitStats();
   }
@@ -1154,6 +1628,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
     // Bounce player
     this.player.setVelocityY(BOUNCE_VELOCITY);
+    this.addEcoPower(ECO_POWER_GAIN.enemy);
     this.checkAchievements();
     this.emitStats();
   }
@@ -1379,20 +1854,33 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.jumpsLeft = 1;
     }
 
-    // Jump edge detection + buffering
-    if (jumpDown && !this.jumpHeld) {
-      this.jumpBufferTime = now;
+    // Eco Power skill — edge-triggered X key.
+    const skillDown = this.keySkill?.isDown ?? false;
+    if (skillDown && !this.skillHeld) {
+      this.activateSkill();
     }
-    this.jumpHeld = jumpDown;
+    this.skillHeld = skillDown;
 
-    if (this.jumpBufferTime > 0 && now - this.jumpBufferTime <= JUMP_BUFFER_MS) {
-      this.tryJump();
-      this.jumpBufferTime = 0;
-    }
+    if (this.flying) {
+      // Wind skill: hovering flight overrides the normal jump/gravity model.
+      this.updateFlight(now, jumpDown);
+      this.jumpHeld = jumpDown;
+    } else {
+      // Jump edge detection + buffering
+      if (jumpDown && !this.jumpHeld) {
+        this.jumpBufferTime = now;
+      }
+      this.jumpHeld = jumpDown;
 
-    // Variable jump height — cut upward velocity when jump released
-    if (!jumpDown && this.player.body.velocity.y < -180) {
-      this.player.setVelocityY(this.player.body.velocity.y * 0.5);
+      if (this.jumpBufferTime > 0 && now - this.jumpBufferTime <= JUMP_BUFFER_MS) {
+        this.tryJump();
+        this.jumpBufferTime = 0;
+      }
+
+      // Variable jump height — cut upward velocity when jump released
+      if (!jumpDown && this.player.body.velocity.y < -180) {
+        this.player.setVelocityY(this.player.body.velocity.y * 0.5);
+      }
     }
 
     // Snappy horizontal movement (Mario-style)
@@ -1467,6 +1955,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       if (this.stats.lives <= 0) {
         this.gameOver();
       } else {
+        this.endFlight();
         const start = this.level.playerStart;
         this.player.setPosition(start.x, start.y);
         this.player.setVelocity(0, 0);

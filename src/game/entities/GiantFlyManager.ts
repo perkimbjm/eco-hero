@@ -219,7 +219,7 @@ export class GiantFlyManager {
     }
   }
 
-  private defeat(fly: GiantFlySprite): void {
+  private defeat(fly: GiantFlySprite, bounce = true): void {
     fly.flyData.alive = false;
     fly.body!.enable = false;
     fly.stop();
@@ -234,7 +234,7 @@ export class GiantFlyManager {
       coins: COIN_REWARDS.flyingEnemy,
       flyingKill: true,
     });
-    this.host.bouncePlayer();
+    if (bounce) this.host.bouncePlayer();
 
     this.scene.tweens.add({
       targets: fly,
@@ -245,5 +245,21 @@ export class GiantFlyManager {
       duration: 450,
       onComplete: () => fly.destroy(),
     });
+  }
+
+  /**
+   * Wipes out every living fly within `radius` of a point (an Eco Power skill).
+   * Passing a non-positive radius clears the whole level. Returns the count.
+   */
+  purge(x: number, y: number, radius = 0): number {
+    let defeated = 0;
+    this.group.getChildren().forEach((obj) => {
+      const fly = obj as GiantFlySprite;
+      if (!fly.flyData?.alive) return;
+      if (radius > 0 && Phaser.Math.Distance.Between(x, y, fly.x, fly.y) > radius) return;
+      this.defeat(fly, false);
+      defeated++;
+    });
+    return defeated;
   }
 }

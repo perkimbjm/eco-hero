@@ -1,10 +1,24 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { Heart, Trash2, Trophy, Volume2, VolumeX, Home, Sparkles, ArrowLeft, ArrowRight, ArrowUp, Zap } from 'lucide-react';
+import {
+  Heart, Trash2, Trophy, Volume2, VolumeX, Home, Sparkles,
+  ArrowLeft, ArrowRight, ArrowUp, Zap, Leaf, Waves, Wind, Flame, Shield,
+} from 'lucide-react';
 import Phaser from 'phaser';
-import { createGame, setMobileInput } from '@/game/phaserGame';
+import { createGame, setMobileInput, triggerSkill } from '@/game/phaserGame';
 import type { GameStats, LevelResult, AchievementDef } from '@/game/types';
+import type { EcoPowerState } from '@/game/skills';
 import { isMuted, setMuted, unlockAudio } from '@/game/sound';
 import { OrientationGate } from '@/components/OrientationGate';
+
+/** Maps a skill's icon name to a lucide component for the HUD skill button. */
+const SKILL_ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
+  leaf: Leaf,
+  waves: Waves,
+  wind: Wind,
+  flame: Flame,
+  zap: Zap,
+  shield: Shield,
+};
 
 interface GameCanvasProps {
   levelIndex: number;
@@ -46,6 +60,7 @@ export function GameCanvas({
   const [muted, setMutedState] = useState(isMuted());
   const [achievementPopup, setAchievementPopup] = useState<AchievementDef | null>(null);
   const [isTouch, setIsTouch] = useState(false);
+  const [ecoPower, setEcoPower] = useState<EcoPowerState | null>(null);
 
   useEffect(() => {
     setIsTouch(
@@ -77,6 +92,7 @@ export function GameCanvas({
           onAchievement(ach);
           setTimeout(() => setAchievementPopup(null), 3000);
         },
+        onEcoPowerChange: (state) => setEcoPower(state),
         onStoryRequest: () => {},
       },
     });
@@ -100,7 +116,15 @@ export function GameCanvas({
     if (gameRef.current) setMobileInput(gameRef.current, key, pressed);
   }, []);
 
+  const handleSkill = useCallback(() => {
+    if (gameRef.current) triggerSkill(gameRef.current);
+  }, []);
+
   const livesArray = Array.from({ length: Math.max(0, stats.lives) });
+
+  const powerPct = ecoPower ? Math.round((ecoPower.power / ecoPower.max) * 100) : 0;
+  const skillReady = !!ecoPower?.ready && !ecoPower?.used;
+  const SkillIcon = ecoPower ? SKILL_ICONS[ecoPower.icon] ?? Zap : Zap;
 
   return (
     <OrientationGate>
@@ -161,6 +185,72 @@ export function GameCanvas({
           </button>
         </div>
       </div>
+
+      {/* Eco Power meter */}
+      {ecoPower && !ecoPower.used && (
+        <div className="w-full max-w-[800px] mx-auto px-3 sm:px-4 pb-1">
+          <div className="flex items-center gap-2">
+            <div
+              className={`flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0 ${skillReady ? 'animate-pulse' : ''}`}
+              style={{ background: `${ecoPower.cssColor}33`, color: ecoPower.cssColor }}
+            >
+              <SkillIcon size={15} />
+            </div>
+            <div className="relative flex-1 h-3 rounded-full bg-slate-800 overflow-hidden border border-slate-700">
+              <div
+                className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-300"
+                style={{
+                  width: `${powerPct}%`,
+                  background: `linear-gradient(90deg, ${ecoPower.cssColor}99, ${ecoPower.cssColor})`,
+                  boxShadow: skillReady ? `0 0 10px ${ecoPower.cssColor}` : 'none',
+                }}
+              />
+              {skillReady && (
+                <div
+                  className="absolute inset-0 rounded-full animate-pulse"
+                  style={{ boxShadow: `inset 0 0 8px ${ecoPower.cssColor}` }}
+                />
+              )}
+            </div>
+            <span
+              className="text-[11px] font-bold tabular-nums flex-shrink-0 w-16 text-right"
+              style={{ color: skillReady ? ecoPower.cssColor : '#94a3b8' }}
+            >
+              {skillReady ? 'SIAP! ⚡' : `${powerPct}%`}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Eco Power Ready banner */}
+      {skillReady && ecoPower && (
+        <div
+          className="fixed top-16 left-1/2 -translate-x-1/2 z-40 px-4 py-1.5 rounded-full shadow-lg flex items-center gap-2 animate-skill-banner pointer-events-none"
+          style={{ background: ecoPower.cssColor, color: '#0f172a' }}
+        >
+          <SkillIcon size={16} />
+          <span className="font-extrabold text-sm">Eco Power Siap — {ecoPower.skillName}!</span>
+        </div>
+      )}
+
+      {/* Skill activation button — appears only when charged */}
+      {skillReady && ecoPower && (
+        <button
+          onClick={handleSkill}
+          aria-label={`Aktifkan ${ecoPower.skillName}`}
+          className="fixed z-50 bottom-28 right-4 sm:bottom-32 sm:right-6 w-20 h-20 rounded-full flex flex-col items-center justify-center text-white font-extrabold shadow-2xl active:scale-90 transition-transform touch-none animate-skill-ready"
+          style={{
+            background: `radial-gradient(circle at 35% 30%, ${ecoPower.cssColor}, ${ecoPower.cssColor}cc)`,
+            boxShadow: `0 0 24px ${ecoPower.cssColor}, 0 6px 16px rgba(0,0,0,0.4)`,
+            border: '3px solid rgba(255,255,255,0.8)',
+          }}
+        >
+          <SkillIcon size={30} />
+          <span className="text-[9px] mt-0.5 tracking-wide">
+            {isTouch ? 'SKILL' : 'TEKAN X'}
+          </span>
+        </button>
+      )}
 
       {/* Phaser canvas container */}
       <div className="flex-1 flex items-center justify-center min-h-0 px-2">

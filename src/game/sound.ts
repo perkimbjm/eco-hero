@@ -169,6 +169,22 @@ export function playBossDefeat(): void {
   fanfare.forEach((f, i) => playTone({ freq: f, duration: 0.2, type: 'square', volume: 0.11, delay: 0.8 + i * 0.12 }));
 }
 
+/** Eco Power meter has just filled — the skill is ready to fire. */
+export function playSkillReady(): void {
+  const notes = [523, 784, 1047];
+  notes.forEach((f, i) => playTone({ freq: f, duration: 0.14, type: 'sine', volume: 0.13, delay: i * 0.07 }));
+  playTone({ freq: 1319, duration: 0.3, type: 'triangle', volume: 0.1, delay: 0.22 });
+}
+
+/** Firing an Eco Power skill — a big, satisfying energy burst. */
+export function playSkillActivate(): void {
+  playTone({ freq: 130, freqEnd: 60, duration: 0.5, type: 'sawtooth', volume: 0.16 });
+  playNoise(0.4, 0.12);
+  const rise = [523, 659, 784, 1047, 1319, 1568];
+  rise.forEach((f, i) => playTone({ freq: f, duration: 0.16, type: 'square', volume: 0.11, delay: 0.05 + i * 0.05 }));
+  playTone({ freq: 2093, duration: 0.4, type: 'triangle', volume: 0.1, delay: 0.4 });
+}
+
 export function playVictory(): void {
   const melody = [523, 659, 784, 659, 784, 1047, 784, 1047, 1319];
   melody.forEach((f, i) => playTone({ freq: f, duration: 0.15, type: 'square', volume: 0.1, delay: i * 0.1 }));

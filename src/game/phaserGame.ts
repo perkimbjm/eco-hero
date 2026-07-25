@@ -52,6 +52,7 @@ export function createGame(config: PhaserGameConfig): Phaser.Game {
             levelIndex: config.levelIndex,
             callbacks: config.callbacks,
             carriedStats: config.carriedStats,
+            skinId: config.skinId,
           },
         });
       },
@@ -86,5 +87,13 @@ export function setMobileInput(
   const scene = game.scene.getScene('GameScene') as GameScene | null;
   if (scene && scene.scene.isActive()) {
     scene.setMobileInput(key, pressed);
+  }
+}
+
+/** Fires the equipped character's Eco Power skill (mobile skill button). */
+export function triggerSkill(game: Phaser.Game): void {
+  const scene = game.scene.getScene('GameScene') as GameScene | null;
+  if (scene && scene.scene.isActive()) {
+    scene.activateSkill();
   }
 }

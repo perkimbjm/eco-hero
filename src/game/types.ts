@@ -1,3 +1,5 @@
+import type { EcoPowerState } from './skills';
+
 export type TrashType = 'plastic' | 'paper' | 'organic' | 'metal' | 'glass';
 export type SecretType = 'maggot' | 'compost';
 export type BoostType = 'magnet' | 'shield' | 'jump';
@@ -174,6 +176,8 @@ export interface GameCallbacks {
   onGameOver: (stats: GameStats) => void;
   onAchievement: (achievement: AchievementDef) => void;
   onStoryRequest: (levelId: number) => void;
+  /** Pushes Eco Power meter / skill state to the HUD. */
+  onEcoPowerChange?: (state: EcoPowerState) => void;
 }
 
 export type GameScreenName =

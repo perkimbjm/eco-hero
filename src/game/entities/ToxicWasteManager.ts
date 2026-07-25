@@ -15,6 +15,9 @@ interface Pool {
   width: number;
   centerX: number;
   surfaceY: number;
+  cleared: boolean;
+  gfx?: Phaser.GameObjects.Graphics;
+  hitbox?: Phaser.Physics.Arcade.Sprite;
 }
 
 /**
@@ -57,10 +60,11 @@ export class ToxicWasteManager {
       width: def.width,
       centerX: def.x + def.width / 2,
       surfaceY,
+      cleared: false,
     };
     this.pools.push(pool);
 
-    this.drawPool(pool);
+    pool.gfx = this.drawPool(pool);
     this.addSurfaceRipples(pool);
 
     // Warning sign so the hazard reads before the player walks into it.
@@ -85,9 +89,10 @@ export class ToxicWasteManager {
     hitbox.setOrigin(0.5, 0.5);
     hitbox.refreshBody();
     hitbox.setVisible(false);
+    pool.hitbox = hitbox;
   }
 
-  private drawPool(pool: Pool): void {
+  private drawPool(pool: Pool): Phaser.GameObjects.Graphics {
     const g = this.scene.add.graphics();
     g.setDepth(18);
 
@@ -124,6 +129,7 @@ export class ToxicWasteManager {
       const lx = pool.left + ((i + 0.5) * pool.width) / lumps;
       g.fillEllipse(lx, pool.surfaceY + 2, 20, 9);
     }
+    return g;
   }
 
   private addSurfaceRipples(pool: Pool): void {
@@ -175,6 +181,7 @@ export class ToxicWasteManager {
 
     const player = this.host.player;
     const pool = this.pools.find((p) => player.x >= p.left - 20 && player.x <= p.right + 20);
+    if (pool?.cleared) return;
     // Push the player back the way they came so they land on solid ground.
     const sourceX = pool ? pool.centerX : player.x;
 
@@ -182,6 +189,32 @@ export class ToxicWasteManager {
     this.host.burst(player.x, player.y + 16, 0x84cc16, 16);
     this.host.floatScore(player.x, player.y - 26, 'Limbah Beracun!', '#bef264');
     this.host.damagePlayer(sourceX, TOXIC_KNOCKBACK_Y);
+  }
+
+  /**
+   * Neutralises every toxic pool within `radius` of a point (Earth's Recycle
+   * Shield). A non-positive radius clears the whole level. Returns the count.
+   */
+  clear(x: number, y: number, radius = 0): number {
+    let cleared = 0;
+    for (const pool of this.pools) {
+      if (pool.cleared) continue;
+      if (radius > 0 && Phaser.Math.Distance.Between(x, y, pool.centerX, pool.surfaceY) > radius) continue;
+      pool.cleared = true;
+      cleared++;
+      if (pool.hitbox?.body) pool.hitbox.body.enable = false;
+      this.host.burst(pool.centerX, pool.surfaceY, 0x84cc16, 18);
+      const gfx = pool.gfx;
+      if (gfx) {
+        this.scene.tweens.add({
+          targets: gfx,
+          alpha: 0.15,
+          duration: 500,
+          ease: 'Sine.out',
+        });
+      }
+    }
+    return cleared;
   }
 
   private destroy(): void {

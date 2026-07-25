@@ -66,6 +66,17 @@
 .animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
 .animate-leaf-fall { animation: leaf-fall 4s linear forwards; }
 
+@keyframes skill-ready {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.09); }
+}
+@keyframes skill-banner {
+  0% { transform: translate(-50%, -8px); opacity: 0; }
+  100% { transform: translate(-50%, 0); opacity: 1; }
+}
+.animate-skill-ready { animation: skill-ready 1s ease-in-out infinite; }
+.animate-skill-banner { animation: skill-banner 0.35s ease-out; }
+
 html, body, #root {
   height: 100%;
   margin: 0;
