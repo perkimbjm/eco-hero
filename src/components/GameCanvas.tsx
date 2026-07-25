@@ -2,9 +2,10 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   Heart, Trash2, Trophy, Volume2, VolumeX, Home, Sparkles,
   ArrowLeft, ArrowRight, ArrowUp, Zap, Leaf, Waves, Wind, Flame, Shield,
+  Maximize, Minimize,
 } from 'lucide-react';
 import Phaser from 'phaser';
-import { createGame, setMobileInput, triggerSkill } from '@/game/phaserGame';
+import { createGame, setMobileInput, triggerSkill, resizeGame } from '@/game/phaserGame';
 import type { GameStats, LevelResult, AchievementDef } from '@/game/types';
 import type { EcoPowerState } from '@/game/skills';
 import { isMuted, setMuted, unlockAudio } from '@/game/sound';
@@ -42,6 +43,7 @@ export function GameCanvas({
   onQuit,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const [stats, setStats] = useState<GameStats>({
     score: carriedStats.score ?? 0,
@@ -61,6 +63,7 @@ export function GameCanvas({
   const [achievementPopup, setAchievementPopup] = useState<AchievementDef | null>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [ecoPower, setEcoPower] = useState<EcoPowerState | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
     setIsTouch(
@@ -99,7 +102,22 @@ export function GameCanvas({
 
     gameRef.current = game;
 
+    // Re-fit the canvas whenever the container's size settles (orientation
+    // flip, fullscreen toggle, browser chrome show/hide). Without this the
+    // rotated game can stick as a black frame.
+    const container = containerRef.current;
+    let resizeTimer: number | undefined;
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        if (gameRef.current && container) resizeGame(gameRef.current, container);
+      }, 120);
+    });
+    observer.observe(container);
+
     return () => {
+      observer.disconnect();
+      window.clearTimeout(resizeTimer);
       game.destroy(true);
       gameRef.current = null;
     };
@@ -111,6 +129,21 @@ export function GameCanvas({
     setMuted(next);
     setMutedState(next);
   }, [muted]);
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => document.removeEventListener('fullscreenchange', onChange);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = rootRef.current;
+    if (!document.fullscreenElement) {
+      el?.requestFullscreen?.()?.catch(() => {});
+    } else {
+      document.exitFullscreen?.()?.catch(() => {});
+    }
+  }, []);
 
   const handleMobile = useCallback((key: 'left' | 'right' | 'jump', pressed: boolean) => {
     if (gameRef.current) setMobileInput(gameRef.current, key, pressed);
@@ -126,72 +159,83 @@ export function GameCanvas({
   const skillReady = !!ecoPower?.ready && !ecoPower?.used;
   const SkillIcon = ecoPower ? SKILL_ICONS[ecoPower.icon] ?? Zap : Zap;
 
+  // Shrink the HUD on touch devices so the gameplay stays dominant.
+  const hud = isTouch
+    ? { chip: 13, btn: 15, heart: 12, text: 'text-[11px]', chipPad: 'px-1.5 py-0.5', btnPad: 'p-1.5', gap: 'gap-1', group: 'gap-1' }
+    : { chip: 18, btn: 18, heart: 16, text: 'text-base', chipPad: 'px-3 py-1.5', btnPad: 'p-2', gap: 'gap-1.5', group: 'gap-3' };
+
   return (
     <OrientationGate>
     <div
+      ref={rootRef}
       className="relative h-[100dvh] flex flex-col bg-slate-900 overflow-hidden select-none"
       onContextMenu={(e) => e.preventDefault()}
     >
       {/* HUD */}
-      <div className="relative z-20 w-full max-w-[800px] mx-auto flex items-center justify-between gap-2 px-3 pt-2 pb-1.5 sm:px-4 flex-shrink-0">
-        <div className="flex items-center gap-2 sm:gap-4">
-          <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg">
-            <Trophy size={18} className="text-yellow-400" />
-            <span className="text-white font-bold text-sm sm:text-base tabular-nums">
+      <div className={`relative z-20 w-full flex items-center justify-between px-2 pt-1 pb-1 sm:px-4 sm:pt-2 sm:pb-1.5 flex-shrink-0 ${hud.group}`}>
+        <div className={`flex items-center ${hud.group}`}>
+          <div className={`flex items-center bg-slate-800/90 rounded-md sm:rounded-lg ${hud.gap} ${hud.chipPad}`}>
+            <Trophy size={hud.chip} className="text-yellow-400" />
+            <span className={`text-white font-bold tabular-nums ${hud.text}`}>
               {stats.score.toLocaleString('id-ID')}
             </span>
           </div>
           {stats.combo >= 2 && (
-            <div className="flex items-center gap-1.5 bg-gradient-to-r from-orange-600 to-red-600 px-3 py-1.5 rounded-lg animate-pulse">
-              <Zap size={18} className="text-yellow-300" />
-              <span className="text-white font-bold text-sm sm:text-base tabular-nums">
-                x{stats.combo}
-              </span>
+            <div className={`flex items-center bg-gradient-to-r from-orange-600 to-red-600 rounded-md sm:rounded-lg animate-pulse ${hud.gap} ${hud.chipPad}`}>
+              <Zap size={hud.chip} className="text-yellow-300" />
+              <span className={`text-white font-bold tabular-nums ${hud.text}`}>x{stats.combo}</span>
             </div>
           )}
-          <div className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg">
-            <Trash2 size={18} className="text-green-400" />
-            <span className="text-white font-bold text-sm sm:text-base tabular-nums">
+          <div className={`flex items-center bg-slate-800/90 rounded-md sm:rounded-lg ${hud.gap} ${hud.chipPad}`}>
+            <Trash2 size={hud.chip} className="text-green-400" />
+            <span className={`text-white font-bold tabular-nums ${hud.text}`}>
               {stats.trashCollected}
             </span>
           </div>
           {stats.secretsFound > 0 && (
-            <div className="hidden sm:flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg">
-              <Sparkles size={18} className="text-yellow-300" />
-              <span className="text-white font-bold text-sm tabular-nums">{stats.secretsFound}</span>
+            <div className={`hidden sm:flex items-center bg-slate-800/90 rounded-lg ${hud.gap} ${hud.chipPad}`}>
+              <Sparkles size={hud.chip} className="text-yellow-300" />
+              <span className={`text-white font-bold tabular-nums ${hud.text}`}>{stats.secretsFound}</span>
             </div>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-3">
-          <div className="flex items-center gap-0.5 bg-slate-800 px-2 py-1.5 rounded-lg">
+        <div className={`flex items-center ${hud.gap}`}>
+          <div className={`flex items-center gap-0.5 bg-slate-800/90 rounded-md sm:rounded-lg ${hud.chipPad}`}>
             {livesArray.map((_, i) => (
-              <Heart key={i} size={16} className="text-red-500 fill-red-500" />
+              <Heart key={i} size={hud.heart} className="text-red-500 fill-red-500" />
             ))}
             {livesArray.length === 0 && (
-              <span className="text-red-400 text-xs font-bold px-1">Habis</span>
+              <span className="text-red-400 text-[11px] font-bold px-1">Habis</span>
             )}
           </div>
           <button
             onClick={toggleMute}
-            className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
+            className={`bg-slate-800/90 rounded-md sm:rounded-lg hover:bg-slate-700 transition-colors ${hud.btnPad}`}
             aria-label={muted ? 'Nyalakan suara' : 'Matikan suara'}
           >
-            {muted ? <VolumeX size={18} className="text-slate-400" /> : <Volume2 size={18} className="text-white" />}
+            {muted ? <VolumeX size={hud.btn} className="text-slate-400" /> : <Volume2 size={hud.btn} className="text-white" />}
+          </button>
+          <button
+            onClick={toggleFullscreen}
+            className={`bg-slate-800/90 rounded-md sm:rounded-lg hover:bg-slate-700 transition-colors ${hud.btnPad}`}
+            aria-label={isFullscreen ? 'Keluar layar penuh' : 'Layar penuh'}
+          >
+            {isFullscreen ? <Minimize size={hud.btn} className="text-white" /> : <Maximize size={hud.btn} className="text-white" />}
           </button>
           <button
             onClick={onQuit}
-            className="p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors"
+            className={`bg-slate-800/90 rounded-md sm:rounded-lg hover:bg-slate-700 transition-colors ${hud.btnPad}`}
             aria-label="Keluar"
           >
-            <Home size={18} className="text-white" />
+            <Home size={hud.btn} className="text-white" />
           </button>
         </div>
       </div>
 
       {/* Eco Power meter */}
       {ecoPower && !ecoPower.used && (
-        <div className="relative z-20 w-full max-w-[800px] mx-auto px-3 sm:px-4 pb-1 flex-shrink-0">
+        <div className="relative z-20 w-full px-2 sm:px-4 pb-0.5 sm:pb-1 flex-shrink-0">
           <div className="flex items-center gap-2">
             <div
               className={`flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0 ${skillReady ? 'animate-pulse' : ''}`}
@@ -286,15 +330,15 @@ export function GameCanvas({
         <>
           <div className="absolute bottom-3 left-3 z-30 flex gap-2">
             <TouchButton onPress={(p) => handleMobile('left', p)} ariaLabel="Kiri">
-              <ArrowLeft size={28} />
+              <ArrowLeft size={24} />
             </TouchButton>
             <TouchButton onPress={(p) => handleMobile('right', p)} ariaLabel="Kanan">
-              <ArrowRight size={28} />
+              <ArrowRight size={24} />
             </TouchButton>
           </div>
           <div className="absolute bottom-3 right-3 z-30">
             <TouchButton onPress={(p) => handleMobile('jump', p)} ariaLabel="Lompat" variant="jump">
-              <ArrowUp size={32} />
+              <ArrowUp size={28} />
             </TouchButton>
           </div>
         </>
@@ -344,8 +388,8 @@ function TouchButton({
       }}
       className={`flex items-center justify-center text-white font-bold touch-none select-none backdrop-blur-sm border transition-transform active:scale-95 ${
         variant === 'jump'
-          ? 'w-[72px] h-[72px] rounded-full bg-green-600/45 border-white/40 active:bg-green-500/70 shadow-lg'
-          : 'w-16 h-16 rounded-2xl bg-slate-700/40 border-white/30 active:bg-slate-600/70'
+          ? 'w-16 h-16 rounded-full bg-green-600/45 border-white/40 active:bg-green-500/70 shadow-lg'
+          : 'w-14 h-14 rounded-2xl bg-slate-700/40 border-white/30 active:bg-slate-600/70'
       }`}
     >
       {children}

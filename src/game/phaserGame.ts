@@ -106,6 +106,20 @@ export function setMobileInput(
   }
 }
 
+/**
+ * Re-fits the game after the container changes size (orientation flip,
+ * fullscreen toggle). Recomputes the design width for the new aspect ratio and
+ * refreshes the FIT scaler so the canvas never sticks as a blank/black frame.
+ */
+export function resizeGame(game: Phaser.Game, parent: HTMLElement): void {
+  if (!game.isBooted || !game.scale) return;
+  const width = computeGameWidth(parent);
+  if (width !== game.scale.gameSize.width) {
+    game.scale.resize(width, GAME_HEIGHT);
+  }
+  game.scale.refresh();
+}
+
 /** Fires the equipped character's Eco Power skill (mobile skill button). */
 export function triggerSkill(game: Phaser.Game): void {
   const scene = game.scene.getScene('GameScene') as GameScene | null;

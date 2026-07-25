@@ -1665,13 +1665,23 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     // Damage particles
     this.burst(this.player.x, this.player.y, 0xef4444, 12);
 
-    // Blink effect
-    this.tweens.add({
-      targets: this.player,
-      alpha: { from: 0.3, to: 1 },
-      duration: 100,
-      repeat: Math.floor(INVINCIBILITY_MS / 100 / 2),
-      yoyo: true,
+    // Blink effect — a red tint flash, NOT opacity, so the hero never fades out.
+    this.player.setAlpha(1);
+    const blink = this.time.addEvent({
+      delay: 120,
+      repeat: Math.floor(INVINCIBILITY_MS / 120),
+      callback: () => {
+        if (!this.player.active) return;
+        if (this.player.isTinted) {
+          this.player.clearTint();
+        } else {
+          this.player.setTint(0xff7b7b);
+        }
+      },
+    });
+    this.time.delayedCall(INVINCIBILITY_MS, () => {
+      blink.remove();
+      if (this.player.active) this.player.clearTint();
     });
 
     if (this.stats.lives <= 0) {

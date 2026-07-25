@@ -18,8 +18,18 @@ export function OrientationGate({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  if (!isPortrait) return <>{children}</>;
+  // Keep children mounted even in portrait: unmounting would destroy the
+  // Phaser game mid-rotation and come back to a black screen. The rotate
+  // prompt is drawn on top instead.
+  return (
+    <>
+      {children}
+      {isPortrait && <PortraitOverlay />}
+    </>
+  );
+}
 
+function PortraitOverlay() {
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center px-6 text-center">
       <div className="w-24 h-24 rounded-3xl bg-green-600 flex items-center justify-center shadow-2xl mb-6 animate-bounce-slow">
