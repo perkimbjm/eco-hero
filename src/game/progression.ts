@@ -148,7 +148,7 @@ export const SKINS: SkinDef[] = [
   {
     id: 'future',
     name: 'Lightning Guardian',
-    description: 'Pahlawan pemindai berteknologi nano. Skill: Eco Scanner — tandai sampah tersembunyi & bonus skor.',
+    description: 'Pahlawan petir berteknologi nano. Skill: Eco Thunder — sambar polusi & buka sampah tersembunyi.',
     price: 800,
     skill: 'lightning',
     colors: {
@@ -160,7 +160,7 @@ export const SKINS: SkinDef[] = [
   {
     id: 'terra',
     name: 'Earth Guardian',
-    description: 'Penjaga bumi berperisai. Skill: Recycle Shield — kebal & hancurkan bahaya lingkungan.',
+    description: 'Penjaga bumi yang tangguh. Skill: Earthquake Recycle — gelombang tanah penghancur polusi & pelindung.',
     price: 650,
     skill: 'earth',
     colors: {

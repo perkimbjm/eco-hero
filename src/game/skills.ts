@@ -37,73 +37,90 @@ export const SKILLS: Record<SkillElement, SkillDef> = {
     element: 'green',
     name: 'Green Blast',
     guardian: 'Green Guardian',
-    description: 'Gelombang energi hijau membersihkan sampah di sekitar, menghancurkan polusi, dan memberi perlindungan 5 detik.',
-    education: 'Aksi kecil membersihkan lingkungan menciptakan dampak besar bagi bumi!',
+    description:
+      'Ledakan energi hijau menyapu area sekitar, membersihkan sampah, mengalahkan monster polusi, dan memberi perlindungan energi selama beberapa detik.',
+    education:
+      'Setiap tindakan kecil menjaga lingkungan dapat memberikan perubahan besar bagi bumi.',
     color: 0x22c55e,
     colorLight: 0xbbf7d0,
     cssColor: '#22c55e',
     icon: 'leaf',
-    durationMs: 5000,
+    durationMs: 7000,
   },
+
   aqua: {
     element: 'aqua',
     name: 'River Clean Wave',
     guardian: 'Aqua Guardian',
-    description: 'Gelombang air menarik sampah dari jauh dan membersihkan seluruh area.',
-    education: 'Menjaga sungai bersih melindungi sumber air dan seluruh kehidupan di dalamnya.',
+    description:
+      'Memanggil gelombang air besar yang bergerak maju, menarik sampah dari kejauhan, membersihkan sungai, dan mendorong musuh polusi.',
+    education:
+      'Sungai yang bersih menjaga air tetap sehat bagi manusia, hewan, dan tumbuhan.',
     color: 0x22d3ee,
     colorLight: 0xa5f3fc,
     cssColor: '#22d3ee',
     icon: 'waves',
-    durationMs: 1400,
+    durationMs: 3000,
   },
+
   wind: {
     element: 'wind',
     name: 'Clean Wind',
     guardian: 'Wind Guardian',
-    description: 'Terbang sesaat melewati jurang dan menarik sampah ringan seperti plastik dan kertas.',
-    education: 'Angin bersih bebas polusi membuat semua makhluk hidup bernapas lebih lega.',
-    color: 0x67e8f9,
-    colorLight: 0xecfeff,
+    description:
+      'Menciptakan pusaran angin bersih yang membuat karakter terbang sementara, melewati rintangan, dan menyapu sampah ringan di sekitar.',
+    education:
+      'Udara bersih membuat semua makhluk hidup dapat bernapas lebih sehat.',
+    color: 0x38bdf8,
+    colorLight: 0xe0f2fe,
     cssColor: '#38bdf8',
     icon: 'wind',
     durationMs: 5000,
   },
+
   fire: {
     element: 'fire',
     name: 'Recycle Heat',
     guardian: 'Fire Guardian',
-    description: 'Kalahkan seluruh polusi di layar seketika dengan panas daur ulang.',
-    education: 'Tapi ingat: tidak semua sampah boleh dibakar! Plastik & elektronik harus didaur ulang.',
+    description:
+      'Menghasilkan energi panas daur ulang yang menghancurkan monster polusi dan mengubah limbah berbahaya menjadi energi bersih.',
+    education:
+      'Api ini bukan untuk membakar sampah, tetapi mengubah polusi menjadi energi bersih.',
     color: 0xf97316,
     colorLight: 0xfed7aa,
     cssColor: '#f97316',
     icon: 'flame',
-    durationMs: 800,
+    durationMs: 2500,
   },
+
   lightning: {
     element: 'lightning',
-    name: 'Eco Scanner',
+    name: 'Eco Thunder',
     guardian: 'Lightning Guardian',
-    description: 'Pindai dan tandai sampah tersembunyi, lalu dapatkan bonus skor.',
-    education: 'Ketelitian menemukan sampah tersembunyi membuat lingkungan benar-benar bersih.',
+    description:
+      'Memanggil petir energi hijau yang menyerang seluruh monster polusi, membuka sampah tersembunyi, dan meningkatkan skor kombo.',
+    education:
+      'Teknologi pintar membantu manusia menemukan dan mengelola sampah dengan lebih baik.',
     color: 0xfacc15,
     colorLight: 0xfef9c3,
     cssColor: '#facc15',
     icon: 'zap',
-    durationMs: 6000,
+    durationMs: 7000,
   },
+
   earth: {
     element: 'earth',
-    name: 'Recycle Shield',
+    name: 'Earthquake Recycle',
     guardian: 'Earth Guardian',
-    description: 'Perisai daur ulang membuatmu kebal, menghancurkan bahaya, dan melindungi dari ancaman lingkungan.',
-    education: 'Bumi yang kita lindungi akan memberi perlindungan kembali kepada kita.',
+    description:
+      'Menghentakkan kekuatan bumi untuk membuat gelombang tanah, menghancurkan penghalang, mengalahkan polusi, dan memberi perlindungan sementara.',
+    education:
+      'Melindungi bumi berarti menjaga keseimbangan alam agar bumi terus melindungi kita.',
     color: 0xa16207,
     colorLight: 0xfde68a,
     cssColor: '#ca8a04',
-    icon: 'shield',
-    durationMs: 6000,
+    icon: 'mountain',
+    durationMs: 5000,
   },
 };
 
@@ -125,6 +142,13 @@ export const ECO_POWER_GAIN = {
   /** Bonus added each time a combo of 3+ is extended. */
   combo: 3,
 } as const;
+
+/**
+ * Window after casting during which the player is returned to the spot they
+ * cast from (instead of the level start) if they somehow leave the world.
+ * Firing a skill must never cost progress or a life.
+ */
+export const SKILL_POSITION_GUARD_MS = 1500;
 
 /** Snapshot of the Eco Power state pushed to the HUD. */
 export interface EcoPowerState {

@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   Heart, Trash2, Trophy, Volume2, VolumeX, Home, Sparkles,
   ArrowLeft, ArrowRight, ArrowUp, Zap, Leaf, Waves, Wind, Flame, Shield,
-  Maximize, Minimize,
+  Mountain, Maximize, Minimize,
 } from 'lucide-react';
 import Phaser from 'phaser';
 import { createGame, setMobileInput, triggerSkill, resizeGame } from '@/game/phaserGame';
@@ -19,6 +19,7 @@ const SKILL_ICONS: Record<string, React.ComponentType<{ size?: number | string; 
   flame: Flame,
   zap: Zap,
   shield: Shield,
+  mountain: Mountain,
 };
 
 interface GameCanvasProps {

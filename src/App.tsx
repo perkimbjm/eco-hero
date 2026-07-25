@@ -295,7 +295,13 @@ function App() {
     case 'leaderboard':
       return <LeaderboardScreen onHome={handleHome} />;
     case 'progress':
-      return <ProgressScreen playerName={playerName} onHome={handleHome} />;
+      return (
+        <ProgressScreen
+          playerName={playerName}
+          onSkinChange={setEquippedSkin}
+          onHome={handleHome}
+        />
+      );
     default:
       return (
         <StartScreen

@@ -15,6 +15,8 @@ import {
 interface ProgressScreenProps {
   playerName: string;
   onHome: () => void;
+  /** Notifies the app so the next level starts with the newly equipped skin. */
+  onSkinChange?: (skinId: string) => void;
 }
 
 const ICON_MAP: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
@@ -22,7 +24,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ size?: number | string; cla
   trash: Trash2, waves: Waves, droplet: Droplet, gem: Gem, shirt: Shirt,
 };
 
-export function ProgressScreen({ playerName, onHome }: ProgressScreenProps) {
+export function ProgressScreen({ playerName, onHome, onSkinChange }: ProgressScreenProps) {
   const [progress, setProgress] = useState<PlayerProgressRow | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +76,7 @@ export function ProgressScreen({ playerName, onHome }: ProgressScreenProps) {
     const res = await equipSkin(playerName, skinId);
     if (res.success && res.progress) {
       setProgress(res.progress);
+      onSkinChange?.(res.progress.equipped_skin);
       showToast(res.message);
     } else {
       showToast(res.message);

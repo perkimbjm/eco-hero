@@ -28,11 +28,17 @@ import {
   COMBO_WINDOW_MS,
   COMBO_MAX,
   TIME_BONUS_PCT,
+  FLOOD_WAVE_WIDTH,
+  FLOOD_DAMAGE_HEIGHT,
+  FLOOD_CREST_HEIGHT,
+  FLOOD_SPEED,
+  FLOOD_KNOCKBACK_Y,
 } from '../constants';
 import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, getRankForXp, getSkinById } from '../progression';
 import {
   ECO_POWER_MAX,
   ECO_POWER_GAIN,
+  SKILL_POSITION_GUARD_MS,
   getSkill,
   type SkillDef,
 } from '../skills';
@@ -67,6 +73,11 @@ interface SecretSprite extends Phaser.Physics.Arcade.Sprite {
   secretData: { type: string; collected: boolean };
 }
 
+/** Forward glide speed while Aqua's Water Mode is riding the wave. */
+const SURF_SPEED = 330;
+/** Score multiplier applied to pickups inside the Eco Thunder combo window. */
+const COMBO_BOOST_MULTIPLIER = 2;
+
 export class GameScene extends Phaser.Scene implements EntityHost {
   private callbacks!: GameCallbacks;
   private level!: LevelDef;
@@ -76,7 +87,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   private xpInLevel = 0;
   private coinsInLevel = 0;
   private challengeWarningShown = false;
-  private floodWave: Phaser.GameObjects.Rectangle | null = null;
+  private floodWave: Phaser.GameObjects.Container | null = null;
   private floodActive = false;
   private floodTimer = 0;
   private smogOverlay: Phaser.GameObjects.Rectangle | null = null;
@@ -152,6 +163,21 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   /** While > time.now the Wind skill keeps the player aloft. */
   private flightUntil = 0;
   private flying = false;
+  /** Where the skill was cast, so casting never costs the player their spot. */
+  private skillAnchorX = 0;
+  private skillAnchorY = 0;
+  private skillGuardUntil = 0;
+  /** Aqua "Water Mode": the hero surfs forward on a wave. */
+  private surfing = false;
+  private surfUntil = 0;
+  private surfDir = 1;
+  private surfWave: Phaser.GameObjects.Graphics | null = null;
+  /** Earth quake window — the ground keeps trembling while this runs. */
+  private quakeUntil = 0;
+  /** Eco Thunder combo window: combo holds and scores are doubled. */
+  private comboBoostUntil = 0;
+  /** Persistent aura drawn around the hero while a shield skill is active. */
+  private shieldAura: Phaser.GameObjects.Arc | null = null;
 
   constructor() {
     super('GameScene');
@@ -175,6 +201,16 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.skillHeld = false;
     this.flightUntil = 0;
     this.flying = false;
+    this.skillAnchorX = 0;
+    this.skillAnchorY = 0;
+    this.skillGuardUntil = 0;
+    this.surfing = false;
+    this.surfUntil = 0;
+    this.surfDir = 1;
+    this.surfWave = null;
+    this.quakeUntil = 0;
+    this.comboBoostUntil = 0;
+    this.shieldAura = null;
     this.state = 'playing';
     this.goalReached = false;
     this.goalFlag = null;
@@ -838,16 +874,22 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.skillReady = false;
     this.ecoPower = 0;
 
+    // Remember where the skill was cast; the player resumes here, never at the
+    // level start, if anything knocks them out of the world mid-cast.
+    this.skillAnchorX = this.player.x;
+    this.skillAnchorY = this.player.y;
+    this.skillGuardUntil = this.time.now + SKILL_POSITION_GUARD_MS;
+
     sound.playSkillActivate();
     this.playSkillCinematic();
 
     switch (this.skill.element) {
       case 'green': this.skillGreenBlast(); break;
-      case 'aqua': this.skillRiverWave(); break;
+      case 'aqua': this.skillWaterMode(); break;
       case 'wind': this.skillCleanWind(); break;
       case 'fire': this.skillRecycleHeat(); break;
-      case 'lightning': this.skillEcoScanner(); break;
-      case 'earth': this.skillRecycleShield(); break;
+      case 'lightning': this.skillEcoThunder(); break;
+      case 'earth': this.skillEarthquakeRecycle(); break;
     }
 
     this.time.delayedCall(650, () => {
@@ -917,11 +959,21 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       duration: 600,
       onComplete: () => aura.destroy(),
     });
+    // Hero power-up pop, drawn on a decoy image that follows the player.
+    // Scaling the player sprite itself would scale its Arcade body, which can
+    // push it through the floor and trigger a fall-off-world respawn.
+    const pop = this.add.image(player.x, player.y, player.texture.key);
+    pop.setFlipX(player.flipX);
+    pop.setDepth(82);
+    pop.setTint(this.skill.colorLight);
     this.tweens.add({
-      targets: player,
+      targets: pop,
       scale: { from: 1.45, to: 1 },
+      alpha: { from: 0.9, to: 0 },
       duration: 500,
       ease: 'Back.out',
+      onUpdate: () => pop.setPosition(player.x, player.y),
+      onComplete: () => pop.destroy(),
     });
 
     this.floatText(player.x, player.y - 58, `${this.skill.name}!`, this.skill.cssColor);
@@ -929,22 +981,53 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   // ── Individual skill effects ──────────────────────────────
 
+  /** Green Blast — a superhero shockwave: clears trash, wipes pollution, shields. */
   private skillGreenBlast(): void {
-    const radius = 280;
+    const radius = 320;
     this.absorbTrashInRadius(this.player.x, this.player.y, radius);
     this.defeatEnemiesInRadius(this.player.x, this.player.y, radius);
     this.grantShield(this.skill.durationMs);
-    this.banner('Perlindungan hijau aktif!', this.skill.cssColor);
+    this.spawnShieldAura(this.skill.durationMs, this.skill.color);
+
+    // Extra ground-level energy blast so the hit really lands.
+    const blast = this.add.ellipse(this.player.x, this.player.y + 18, 60, 24, this.skill.color, 0.55);
+    blast.setDepth(79);
+    this.tweens.add({
+      targets: blast,
+      scaleX: 11,
+      scaleY: 4,
+      alpha: 0,
+      duration: 620,
+      ease: 'Cubic.out',
+      onComplete: () => blast.destroy(),
+    });
+
+    const seconds = Math.round(this.skill.durationMs / 1000);
+    this.banner(`Ledakan energi hijau! Perisai ${seconds} detik`, this.skill.cssColor);
   }
 
-  private skillRiverWave(): void {
-    let pulled = 0;
+  /** Water Mode — the hero surfs forward on a wave, sweeping the river clean. */
+  private skillWaterMode(): void {
+    this.surfing = true;
+    this.surfUntil = this.time.now + this.skill.durationMs;
+    this.surfDir = this.player.flipX ? -1 : 1;
+    this.player.setTint(0x7dd3fc);
+
+    this.surfWave?.destroy();
+    const wave = this.add.graphics();
+    wave.setDepth(12);
+    this.surfWave = wave;
+
+    // A big swell rolls in across the screen behind the hero.
+    this.spawnIncomingWave();
+
+    // The wave drags every piece of trash in the river to the hero.
     this.trashGroup.getChildren().forEach((obj) => {
       const t = obj as TrashSprite;
       if (t.trashData.collected) return;
       t.trashData.collected = true;
       if (t.body) t.body.enable = false;
-      pulled++;
+      this.tweens.killTweensOf(t);
       const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, t.x, t.y);
       this.tweens.add({
         targets: t,
@@ -956,9 +1039,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       });
     });
     this.giantFlies?.purge(this.player.x, this.player.y, 500);
-    if (pulled === 0) {
-      this.floatText(this.player.x, this.player.y - 40, 'Area sudah bersih!', this.skill.cssColor);
-    }
+    this.banner('Water Mode! Berselancar di atas gelombang', this.skill.cssColor);
   }
 
   private skillCleanWind(): void {
@@ -989,13 +1070,51 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.banner('Terbang! Tahan Lompat untuk naik', this.skill.cssColor);
   }
 
+  /**
+   * Recycle Heat — the flames burn the POLLUTION MONSTERS, never the rubbish.
+   * Trash is transformed into clean recycled energy instead.
+   */
   private skillRecycleHeat(): void {
-    // Radius 0 => the whole level.
-    this.defeatEnemiesInRadius(this.player.x, this.player.y, 0);
-    this.banner('Seluruh polusi dikalahkan!', this.skill.cssColor);
+    // Burn every pollution monster in the level.
+    this.burnPollutionMonsters();
+    // Rubbish is not burned — it is converted into clean energy.
+    const converted = this.convertTrashToEnergy();
+
+    this.banner('Polusi dibakar — sampah jadi energi bersih!', this.skill.cssColor);
+    if (converted > 0) {
+      this.floatText(
+        this.player.x,
+        this.player.y - 76,
+        `${converted} sampah → energi daur ulang`,
+        this.skill.cssColor
+      );
+    }
   }
 
-  private skillEcoScanner(): void {
+  /**
+   * Eco Thunder — lightning strikes every pollution monster, exposes hidden
+   * trash, and opens a combo window where every pickup scores double.
+   */
+  private skillEcoThunder(): void {
+    // Strike every pollution monster on the level.
+    let struck = 0;
+    this.enemyGroup.getChildren().forEach((obj) => {
+      const e = obj as EnemySprite;
+      if (!e.enemyData.alive) return;
+      this.strikeLightning(e.x, e.y);
+      this.defeatEnemyViaSkill(e);
+      struck++;
+    });
+    this.flyingEnemyGroup.getChildren().forEach((obj) => {
+      const s = obj as Phaser.Physics.Arcade.Sprite;
+      if (!s.getData('alive')) return;
+      this.strikeLightning(s.x, s.y);
+      this.defeatFlyingViaSkill(s);
+      struck++;
+    });
+    this.giantFlies?.purge(this.player.x, this.player.y, 0);
+
+    // Reveal what is still hidden.
     let found = 0;
     this.secretGroup.getChildren().forEach((obj) => {
       const s = obj as SecretSprite;
@@ -1009,24 +1128,320 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.pingLocation(t.x, t.y, this.skill.colorLight);
     });
 
-    const bonus = 500 + found * 300;
-    this.stats.score += bonus;
-    this.xpInLevel += XP_REWARDS.secret;
-    this.coinsInLevel += COIN_REWARDS.secret;
-    this.floatText(this.player.x, this.player.y - 58, `Scan! +${bonus}`, this.skill.cssColor);
-    this.emitStats();
+    // Combo window: the streak holds and every pickup scores double.
+    this.comboBoostUntil = this.time.now + this.skill.durationMs;
+    this.lastCollectTime = this.time.now;
+    this.combo = Math.max(this.combo, 2);
+    this.stats.combo = this.combo;
+
+    const seconds = Math.round(this.skill.durationMs / 1000);
+    this.banner(`Eco Thunder! Combo x2 selama ${seconds} detik`, this.skill.cssColor);
+    if (struck === 0 && found === 0) {
+      this.floatText(this.player.x, this.player.y - 76, 'Area sudah bersih!', this.skill.cssColor);
+    }
   }
 
-  private skillRecycleShield(): void {
+  /**
+   * Earthquake Recycle — the ground trembles, shaking every piece of trash down
+   * to the floor so it can be walked over, and smashing the barriers on screen.
+   */
+  private skillEarthquakeRecycle(): void {
+    this.quakeUntil = this.time.now + this.skill.durationMs;
+    this.cameras.main.shake(this.skill.durationMs, 0.005);
+
+    // Everything falls to the ground — no jumping needed to collect it.
+    const dropped = this.dropAllTrashToGround();
+
+    // Smash the barriers across the visible screen.
+    const view = this.cameras.main.worldView;
+    const reach = view.width / 2 + 80;
+    this.toxicWaste?.clear(view.centerX, view.centerY, reach);
+    this.defeatEnemiesInRadius(view.centerX, view.centerY, reach);
+
     this.grantShield(this.skill.durationMs);
-    this.invincibleUntil = Math.max(this.invincibleUntil, this.time.now + this.skill.durationMs);
-    this.toxicWaste?.clear(this.player.x, this.player.y, 0);
-    this.giantFlies?.purge(this.player.x, this.player.y, 0);
-    this.defeatEnemiesInRadius(this.player.x, this.player.y, 260);
-    this.banner('Perisai daur ulang aktif — kebal!', this.skill.cssColor);
+    this.spawnShieldAura(this.skill.durationMs, this.skill.color);
+
+    const seconds = Math.round(this.skill.durationMs / 1000);
+    this.banner(`Gempa daur ulang! Tanah bergetar ${seconds} detik`, this.skill.cssColor);
+    if (dropped > 0) {
+      this.floatText(
+        this.player.x,
+        this.player.y - 76,
+        `${dropped} sampah jatuh ke tanah!`,
+        this.skill.cssColor
+      );
+    }
   }
 
   // ── Skill helpers ─────────────────────────────────────────
+
+  /** Glowing bubble that tracks the hero for the life of a shield skill. */
+  private spawnShieldAura(durationMs: number, color: number): void {
+    this.shieldAura?.destroy();
+    const aura = this.add.circle(this.player.x, this.player.y, 34, color, 0.18);
+    aura.setStrokeStyle(3, color, 0.85);
+    aura.setDepth(8);
+    this.shieldAura = aura;
+
+    this.tweens.add({
+      targets: aura,
+      scale: { from: 0.9, to: 1.1 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+      onUpdate: () => aura.setPosition(this.player.x, this.player.y),
+    });
+
+    this.time.delayedCall(durationMs, () => {
+      this.tweens.killTweensOf(aura);
+      this.tweens.add({
+        targets: aura,
+        alpha: 0,
+        scale: 1.7,
+        duration: 300,
+        onComplete: () => {
+          aura.destroy();
+          if (this.shieldAura === aura) this.shieldAura = null;
+        },
+      });
+    });
+  }
+
+  /** A swell that rolls across the screen when Water Mode starts. */
+  private spawnIncomingWave(): void {
+    const view = this.cameras.main.worldView;
+    const fromX = this.surfDir > 0 ? view.x - 120 : view.right + 120;
+    const toX = this.surfDir > 0 ? view.right + 160 : view.x - 160;
+    const surfaceY = GAME_HEIGHT - 96;
+
+    const swell = this.add.graphics();
+    swell.setDepth(11);
+    swell.fillStyle(0x0284c7, 0.5);
+    swell.fillEllipse(0, 0, 260, 96);
+    swell.fillStyle(0x38bdf8, 0.55);
+    swell.fillEllipse(0, -10, 200, 66);
+    swell.fillStyle(0xe0f2fe, 0.8);
+    swell.fillEllipse(0, -30, 110, 26);
+    swell.setPosition(fromX, surfaceY);
+
+    this.tweens.add({
+      targets: swell,
+      x: toX,
+      duration: 1100,
+      ease: 'Sine.out',
+      onComplete: () => swell.destroy(),
+    });
+  }
+
+  /** Drives the surf: constant forward glide plus the wave drawn underfoot. */
+  private updateSurf(now: number): void {
+    if (now > this.surfUntil) {
+      this.endSurf();
+      return;
+    }
+    if (!this.player.body) return;
+
+    this.player.setVelocityX(this.surfDir * SURF_SPEED);
+    this.player.setFlipX(this.surfDir < 0);
+
+    const wave = this.surfWave;
+    if (wave) {
+      const px = this.player.x;
+      const py = this.player.y;
+      wave.clear();
+      wave.fillStyle(0x0284c7, 0.5);
+      wave.fillEllipse(px - this.surfDir * 12, py + 28, 104, 34);
+      wave.fillStyle(0x38bdf8, 0.7);
+      wave.fillEllipse(px - this.surfDir * 6, py + 24, 76, 24);
+      wave.fillStyle(0xe0f2fe, 0.9);
+      wave.fillEllipse(px - this.surfDir * 30, py + 16, 30, 14);
+    }
+
+    // Spray droplets trailing behind the board.
+    if (Math.random() < 0.6) {
+      const drop = this.add.image(this.player.x - this.surfDir * 22, this.player.y + 20, 'particle');
+      drop.setTint(0xbae6fd);
+      drop.setDepth(13);
+      drop.setScale(0.35 + Math.random() * 0.35);
+      this.tweens.add({
+        targets: drop,
+        x: drop.x - this.surfDir * (30 + Math.random() * 40),
+        y: drop.y - 20 - Math.random() * 26,
+        alpha: 0,
+        duration: 480,
+        ease: 'Cubic.out',
+        onComplete: () => drop.destroy(),
+      });
+    }
+  }
+
+  private endSurf(): void {
+    if (!this.surfing) return;
+    this.surfing = false;
+    this.player.clearTint();
+    this.surfWave?.destroy();
+    this.surfWave = null;
+    this.banner('Gelombang mereda', this.skill.cssColor);
+  }
+
+  /** Fire skill: the flames consume the pollution monsters themselves. */
+  private burnPollutionMonsters(): void {
+    this.enemyGroup.getChildren().forEach((obj) => {
+      const e = obj as EnemySprite;
+      if (!e.enemyData.alive) return;
+      this.spawnFlame(e.x, e.y);
+      this.defeatEnemyViaSkill(e);
+    });
+    this.flyingEnemyGroup.getChildren().forEach((obj) => {
+      const s = obj as Phaser.Physics.Arcade.Sprite;
+      if (!s.getData('alive')) return;
+      this.spawnFlame(s.x, s.y);
+      this.defeatFlyingViaSkill(s);
+    });
+    this.giantFlies?.purge(this.player.x, this.player.y, 0);
+  }
+
+  private spawnFlame(x: number, y: number): void {
+    for (let i = 0; i < 7; i++) {
+      const f = this.add.image(x + (Math.random() - 0.5) * 22, y + 10, 'particle');
+      f.setTint(i % 2 === 0 ? 0xf97316 : 0xfacc15);
+      f.setDepth(83);
+      f.setScale(0.5 + Math.random() * 0.5);
+      this.tweens.add({
+        targets: f,
+        y: y - 40 - Math.random() * 30,
+        alpha: 0,
+        scale: 0,
+        duration: 420 + Math.random() * 260,
+        ease: 'Cubic.out',
+        onComplete: () => f.destroy(),
+      });
+    }
+  }
+
+  /**
+   * Turns the rubbish on screen into clean recycled energy (it is never burned)
+   * and returns how many pieces were converted.
+   */
+  private convertTrashToEnergy(): number {
+    const view = this.cameras.main.worldView;
+    const reach = view.width / 2 + 120;
+    let converted = 0;
+
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      if (Phaser.Math.Distance.Between(view.centerX, view.centerY, t.x, t.y) > reach) return;
+
+      t.trashData.collected = true;
+      if (t.body) t.body.enable = false;
+      this.tweens.killTweensOf(t);
+      converted++;
+
+      // The rubbish glows into an energy mote that streams to the hero.
+      t.setTint(0xfed7aa);
+      this.tweens.add({
+        targets: t,
+        x: this.player.x,
+        y: this.player.y,
+        scale: 0.5,
+        duration: 420,
+        ease: 'Cubic.in',
+        onComplete: () => {
+          this.burst(this.player.x, this.player.y, 0xf97316, 6);
+          this.creditTrash(t);
+        },
+      });
+    });
+
+    return converted;
+  }
+
+  /** Lightning bolt drawn from the top of the view down onto a target. */
+  private strikeLightning(x: number, y: number): void {
+    const g = this.add.graphics();
+    g.setDepth(84);
+
+    const topY = this.cameras.main.worldView.y - 30;
+    const steps = 6;
+    g.beginPath();
+    g.moveTo(x, topY);
+    for (let i = 1; i <= steps; i++) {
+      const ny = topY + ((y - topY) * i) / steps;
+      const nx = x + (Math.random() - 0.5) * 48 * (1 - i / steps);
+      g.lineTo(nx, ny);
+    }
+    // Glow first, bright core on top.
+    g.lineStyle(10, 0xfacc15, 0.3);
+    g.strokePath();
+    g.lineStyle(3, 0xfef9c3, 1);
+    g.strokePath();
+
+    this.tweens.add({
+      targets: g,
+      alpha: 0,
+      duration: 340,
+      delay: 90,
+      onComplete: () => g.destroy(),
+    });
+    this.burst(x, y, 0xfacc15, 12);
+  }
+
+  /**
+   * Earthquake: shakes every remaining piece of trash down onto the ground so
+   * it can be collected on foot. Returns how many pieces fell.
+   */
+  private dropAllTrashToGround(): number {
+    const groundTop = GAME_HEIGHT - 80;
+    const restY = groundTop - 16;
+    let dropped = 0;
+
+    this.trashGroup.getChildren().forEach((obj) => {
+      const t = obj as TrashSprite;
+      if (t.trashData.collected) return;
+      if (t.y >= restY - 2) return;
+
+      dropped++;
+      this.tweens.killTweensOf(t);
+      t.trashData.baseY = restY;
+      const fall = 260 + (restY - t.y) * 0.7;
+
+      this.tweens.add({
+        targets: t,
+        y: restY,
+        duration: fall,
+        ease: 'Bounce.out',
+        onUpdate: () => t.body?.updateFromGameObject(),
+        onComplete: () => {
+          t.body?.updateFromGameObject();
+          this.burst(t.x, restY + 10, 0xa16207, 4);
+        },
+      });
+    });
+
+    return dropped;
+  }
+
+  /** Dust kicked up along the ground while the quake lasts. */
+  private emitQuakeDust(): void {
+    if (Math.random() > 0.5) return;
+    const view = this.cameras.main.worldView;
+    const x = view.x + Math.random() * view.width;
+    const y = GAME_HEIGHT - 84;
+    const dust = this.add.image(x, y, 'particle');
+    dust.setTint(0xa8a29e);
+    dust.setDepth(22);
+    dust.setScale(0.4 + Math.random() * 0.5);
+    this.tweens.add({
+      targets: dust,
+      y: y - 22 - Math.random() * 20,
+      x: x + (Math.random() - 0.5) * 30,
+      alpha: 0,
+      duration: 600,
+      ease: 'Cubic.out',
+      onComplete: () => dust.destroy(),
+    });
+  }
 
   private grantShield(durationMs: number): void {
     if (!this.activeEffects.includes('shield')) this.activeEffects.push('shield');
@@ -1301,10 +1716,13 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   private resetCombo(): void {
     this.combo = 0;
+    this.stats.combo = 0;
+    this.emitStats();
   }
 
   private bumpCombo(): void {
     this.combo = Math.min(COMBO_MAX, this.combo + 1);
+    this.stats.combo = this.combo;
     if (this.combo > this.maxCombo) this.maxCombo = this.combo;
     this.lastCollectTime = this.time.now;
     if (this.combo >= 2) {
@@ -1317,9 +1735,16 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   private updateCombo(): void {
     const now = this.time.now;
+    // Eco Thunder holds the streak open for the whole combo window.
+    if (now <= this.comboBoostUntil) return;
     if (this.combo > 0 && now - this.lastCollectTime > COMBO_WINDOW_MS) {
       this.resetCombo();
     }
+  }
+
+  /** Extra score multiplier while the Eco Thunder combo window is open. */
+  private comboBoost(): number {
+    return this.time.now <= this.comboBoostUntil ? COMBO_BOOST_MULTIPLIER : 1;
   }
 
   private floatText(x: number, y: number, text: string, color: string): void {
@@ -1510,7 +1935,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     const colorHex = TRASH_COLORS[sprite.trashData.type as keyof typeof TRASH_COLORS];
     const color = parseInt(colorHex.main.slice(1), 16);
     this.bumpCombo();
-    const multiplier = this.combo >= COMBO_MAX ? COMBO_MAX : this.combo;
+    const multiplier = (this.combo >= COMBO_MAX ? COMBO_MAX : this.combo) * this.comboBoost();
     const totalScore = TRASH_SCORE * multiplier;
     this.stats.score += totalScore;
     this.stats.trashCollected++;
@@ -1536,7 +1961,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.bumpCombo();
     const isMaggot = sprite.secretData.type === 'maggot';
     const color = isMaggot ? 0xfbbf24 : 0x65a30d;
-    const multiplier = this.combo >= COMBO_MAX ? COMBO_MAX : this.combo;
+    const multiplier = (this.combo >= COMBO_MAX ? COMBO_MAX : this.combo) * this.comboBoost();
     const totalScore = SECRET_SCORE * multiplier;
     this.stats.score += totalScore;
     this.stats.secretsFound++;
@@ -1955,22 +2380,39 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     // Update active effects
     this.updateActiveEffects();
 
+    // Skill states that persist for a few seconds after casting. Surfing runs
+    // after the movement block so it overrides the player's own velocity.
+    if (this.surfing) this.updateSurf(now);
+    if (now <= this.quakeUntil) this.emitQuakeDust();
+
     // Environmental challenges
     this.updateEnvironmentalChallenge(dt, now);
 
     // Fall off world
     if (this.player.y > GAME_HEIGHT + 100) {
-      this.stats.lives--;
-      this.emitStats();
-      if (this.stats.lives <= 0) {
-        this.gameOver();
-      } else {
+      const castingSkill = this.flying || this.surfing || now <= this.skillGuardUntil;
+      if (castingSkill) {
+        // Using a skill must never send the player back to the level start or
+        // cost a life — put them back exactly where they cast it.
         this.endFlight();
-        const start = this.level.playerStart;
-        this.player.setPosition(start.x, start.y);
+        this.endSurf();
+        this.player.setPosition(this.skillAnchorX, this.skillAnchorY);
         this.player.setVelocity(0, 0);
         this.jumpsLeft = 1;
-        this.invincibleUntil = this.time.now + INVINCIBILITY_MS;
+      } else {
+        this.stats.lives--;
+        this.emitStats();
+        if (this.stats.lives <= 0) {
+          this.gameOver();
+        } else {
+          this.endFlight();
+          this.endSurf();
+          const start = this.level.playerStart;
+          this.player.setPosition(start.x, start.y);
+          this.player.setVelocity(0, 0);
+          this.jumpsLeft = 1;
+          this.invincibleUntil = this.time.now + INVINCIBILITY_MS;
+        }
       }
     }
 
@@ -2140,46 +2582,72 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.floodTimer = 7000 + Math.random() * 4000;
     }
 
-    if (this.floodActive && this.floodWave) {
-      this.floodWave.x += 280 * dt;
-      // Sync foam position with wave
-      const foam = (this.floodWave as unknown as { foam?: Phaser.GameObjects.Rectangle }).foam;
-      if (foam) foam.x = this.floodWave.x;
+    const wave = this.floodWave;
+    if (!this.floodActive || !wave) return;
 
-      // Damage and block player if flood wave hits
-      if (this.floodWave.visible) {
-        const waveLeft = this.floodWave.x;
-        const waveRight = this.floodWave.x + this.floodWave.width;
-        const waveTop = GAME_HEIGHT - 80;
+    wave.x += FLOOD_SPEED * dt;
 
-        const playerLeft = this.player.x - this.player.body!.halfWidth;
-        const playerRight = this.player.x + this.player.body!.halfWidth;
-        const playerBottom = this.player.y + this.player.body!.halfHeight;
+    const groundTop = GAME_HEIGHT - 80;
+    const waveLeft = wave.x;
+    const waveRight = wave.x + FLOOD_WAVE_WIDTH;
+    // Only the lower band hurts; the tall crest above it is decoration, so a
+    // single well-timed jump always clears the wave.
+    const damageTop = groundTop - FLOOD_DAMAGE_HEIGHT;
 
-        // Check if player collides with flood wave
-        const playerInWave = playerRight > waveLeft && playerLeft < waveRight && playerBottom > waveTop;
-        
-        if (playerInWave) {
-          // Block player movement (push backward)
-          if (this.player.body) {
-            this.player.setVelocityX(-150);
-          }
-          
-          // Damage player once
-          if (now > this.invincibleUntil) {
-            this.hurtPlayer({ x: this.floodWave.x } as EnemySprite);
-          }
+    this.spawnFloodSpray(wave.x, groundTop);
+
+    const body = this.player.body;
+    if (body) {
+      const playerLeft = this.player.x - body.halfWidth;
+      const playerRight = this.player.x + body.halfWidth;
+      const playerTop = this.player.y - body.halfHeight;
+      const playerBottom = this.player.y + body.halfHeight;
+
+      const inWave =
+        playerRight > waveLeft &&
+        playerLeft < waveRight &&
+        playerBottom > damageTop &&
+        playerTop < groundTop;
+
+      if (inWave) {
+        // Swept along with the current rather than shoved back into it.
+        this.player.setVelocityX(FLOOD_SPEED * 0.5);
+
+        if (now > this.invincibleUntil) {
+          this.burst(this.player.x, this.player.y, 0x67e8f9, 16);
+          this.floatScore(this.player.x, this.player.y - 26, 'Terseret banjir!', '#a5f3fc');
+          this.applyDamage(wave.x + FLOOD_WAVE_WIDTH / 2, FLOOD_KNOCKBACK_Y);
         }
       }
-
-      if (this.floodWave.x > this.level.width + 100) {
-        const foam = (this.floodWave as unknown as { foam?: Phaser.GameObjects.Rectangle }).foam;
-        if (foam) foam.destroy();
-        this.floodWave.destroy();
-        this.floodWave = null;
-        this.floodActive = false;
-      }
     }
+
+    // Retire the wave once it has swept past the far side of the view.
+    if (wave.x > this.cameras.main.worldView.right + 260) {
+      this.tweens.killTweensOf(wave);
+      wave.destroy();
+      this.floodWave = null;
+      this.floodActive = false;
+    }
+  }
+
+  /** Droplets thrown off the crest as the wave rolls forward. */
+  private spawnFloodSpray(waveX: number, groundTop: number): void {
+    if (Math.random() > 0.6) return;
+    const sx = waveX + FLOOD_WAVE_WIDTH * (0.5 + Math.random() * 0.55);
+    const sy = groundTop - FLOOD_DAMAGE_HEIGHT - Math.random() * 110;
+    const drop = this.add.image(sx, sy, 'particle');
+    drop.setTint(0xbae6fd);
+    drop.setDepth(46);
+    drop.setScale(0.3 + Math.random() * 0.45);
+    this.tweens.add({
+      targets: drop,
+      x: sx + 40 + Math.random() * 80,
+      y: sy - 30 - Math.random() * 60,
+      alpha: 0,
+      duration: 620,
+      ease: 'Cubic.out',
+      onComplete: () => drop.destroy(),
+    });
   }
 
   // ── Smog Challenge ───────────────────────────────────────────
@@ -2261,49 +2729,64 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     });
   }
 
+  /**
+   * Builds a towering flood wave that sweeps in from the edge of the view.
+   * Everything is drawn upward from the ground line, so the crest reads as a
+   * huge curling wall of water while the damaging band stays jumpable.
+   */
   private spawnFloodWave(): void {
     this.floodActive = true;
-    this.showChallengeWarning('Banjir! Lompat!');
+    this.showChallengeWarning('Banjir besar! Lompat!', '#67e8f9');
 
-    // Main wave body — taller, more visible
-    this.floodWave = this.add.rectangle(-120, GAME_HEIGHT - 80, 100, 80, 0x0e7490, 0.85);
-    this.floodWave.setOrigin(0, 0);
-    this.floodWave.setDepth(40);
+    const groundTop = GAME_HEIGHT - 80;
+    const W = FLOOD_WAVE_WIDTH;
+    const H = FLOOD_DAMAGE_HEIGHT;
+    const crest = FLOOD_CREST_HEIGHT;
 
-    // Wave foam top
-    const foam = this.add.rectangle(-120, GAME_HEIGHT - 85, 100, 10, 0x67e8f9, 0.9);
-    foam.setOrigin(0, 0);
-    foam.setDepth(41);
+    // Container origin sits on the ground line; negative Y is upward.
+    const container = this.add.container(
+      this.cameras.main.worldView.x - W - 60,
+      groundTop
+    );
+    container.setDepth(45);
 
-    // Animate wave height surging
+    const g = this.add.graphics();
+
+    // Deep water column, continuing below ground so no seam shows.
+    g.fillStyle(0x0c4a6e, 0.92);
+    g.fillRect(0, -H, W, H + 90);
+    g.fillStyle(0x0e7490, 0.92);
+    g.fillRect(0, -H, W, H);
+
+    // Swelling face of the wave.
+    g.fillStyle(0x0284c7, 0.85);
+    g.fillEllipse(W * 0.66, -H * 0.9, W * 1.3, H * 1.6);
+
+    // Tall curling crest — the dramatic part, above the damaging band.
+    g.fillStyle(0x38bdf8, 0.7);
+    g.fillEllipse(W * 0.72, -crest * 0.55, W * 1.05, crest * 0.85);
+    g.fillStyle(0x7dd3fc, 0.6);
+    g.fillEllipse(W * 0.82, -crest * 0.72, W * 0.7, crest * 0.5);
+
+    // Foam lip on the curl and the running surface line.
+    g.fillStyle(0xe0f2fe, 0.92);
+    g.fillEllipse(W * 0.86, -crest * 0.86, W * 0.45, 26);
+    g.fillStyle(0xf0f9ff, 0.85);
+    g.fillRect(0, -H - 6, W, 8);
+
+    container.add(g);
+    this.floodWave = container;
+
+    // Heaving surge — scales from the ground line, so it rises and falls.
     this.tweens.add({
-      targets: this.floodWave,
-      height: 100,
-      duration: 300,
+      targets: container,
+      scaleY: { from: 0.9, to: 1.08 },
+      duration: 420,
       yoyo: true,
       repeat: -1,
       ease: 'Sine.inOut',
     });
-    this.tweens.add({
-      targets: foam,
-      x: { from: -120, to: -120 },
-      duration: 100,
-      repeat: -1,
-    });
 
-    // Move foam with the wave via update tween
-    this.tweens.add({
-      targets: foam,
-      alpha: { from: 0.9, to: 0.5 },
-      duration: 400,
-      yoyo: true,
-      repeat: -1,
-    });
-
-    // Camera shake for impact
-    this.cameras.main.shake(300, 0.008);
-
-    // Store foam reference on wave for cleanup
-    (this.floodWave as unknown as { foam: Phaser.GameObjects.Rectangle }).foam = foam;
+    this.cameras.main.shake(400, 0.01);
   }
 }

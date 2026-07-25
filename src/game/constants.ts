@@ -58,6 +58,23 @@ export const TOXIC_WASTE_HEIGHT = 30;
 /** Strong upward pop so the player is thrown clear of the sludge. */
 export const TOXIC_KNOCKBACK_Y = -430;
 
+// ── Flood wave (banjir) ──────────────────────────────────────
+
+export const FLOOD_WAVE_WIDTH = 140;
+/**
+ * Height of the damaging water band. Kept below the ~112px a single jump
+ * clears, so the wave is always dodgeable.
+ */
+export const FLOOD_DAMAGE_HEIGHT = 84;
+/**
+ * Crest height — purely visual. Sits inside the ~194px a double jump reaches,
+ * so the wave looks big but never taller than the player can plausibly clear.
+ */
+export const FLOOD_CREST_HEIGHT = 140;
+export const FLOOD_SPEED = 300;
+/** Strong upward toss so being caught by the flood reads clearly. */
+export const FLOOD_KNOCKBACK_Y = -380;
+
 // ── Mini boss: Raja Sampah TPA ───────────────────────────────
 
 export const BOSS_ENERGY_DURATION_MS = 10000;
