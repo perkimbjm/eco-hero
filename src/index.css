@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-15px) translateX(10px); }
+}
+
+@keyframes float-medium {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-10px) translateX(-8px); }
+}
+
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes achievement-pop {
+  0% { transform: translateX(120%) scale(0.8); opacity: 0; }
+  20% { transform: translateX(0) scale(1.05); opacity: 1; }
+  80% { transform: translateX(0) scale(1); opacity: 1; }
+  100% { transform: translateX(120%) scale(0.9); opacity: 0; }
+}
+
+@keyframes tree-grow {
+  0% { transform: scale(0.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.3); opacity: 0.1; }
+}
+
+@keyframes leaf-fall {
+  0% { transform: translateY(-30px) rotate(0deg); opacity: 1; }
+  100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes star-pop {
+  0% { transform: scale(0) rotate(-40deg); opacity: 0; }
+  60% { transform: scale(1.4) rotate(10deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+.animate-spin-slow { animation: spin-slow 2s linear infinite; }
+
+.animate-float-slow { animation: float-slow 6s ease-in-out infinite; }
+.animate-float-medium { animation: float-medium 4.5s ease-in-out infinite; }
+.animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
+.animate-fade-in { animation: fade-in 0.4s ease-out; }
+.animate-achievement-pop { animation: achievement-pop 3s ease-in-out forwards; }
+.animate-tree-grow { animation: tree-grow 0.8s ease-out; }
+.animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
+.animate-leaf-fall { animation: leaf-fall 4s linear forwards; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  overscroll-behavior: none;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+kbd {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.85em;
+}
+
+canvas {
+  touch-action: none;
+}
+
+/* Phaser canvas should fill its container */
+canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
