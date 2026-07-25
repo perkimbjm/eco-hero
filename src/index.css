@@ -108,9 +108,12 @@ canvas {
   user-select: none;
 }
 
-/* Phaser canvas should fill its container */
+/* Phaser's FIT scaler sizes the canvas itself; the design resolution is matched
+   to the container's aspect ratio so it fills without bars. Forcing 100%/100%
+   here would override those inline styles and stretch the picture whenever the
+   two briefly disagree (e.g. mid-rotation). */
 canvas {
   display: block;
-  width: 100% !important;
-  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
 }

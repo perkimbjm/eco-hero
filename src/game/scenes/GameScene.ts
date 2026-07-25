@@ -1600,7 +1600,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   private showEducationBanner(text: string, cssColor: string): void {
     const cx = this.scale.width / 2;
-    const bg = this.add.rectangle(cx, 150, 560, 66, 0x0f172a, 0.85);
+    const boxWidth = Math.min(560, this.scale.width - 40);
+    const bg = this.add.rectangle(cx, 150, boxWidth, 66, 0x0f172a, 0.85);
     bg.setScrollFactor(0);
     bg.setDepth(215);
     bg.setStrokeStyle(2, this.skill.color, 1);
@@ -1610,7 +1611,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       color: cssColor,
       fontStyle: 'bold',
       align: 'center',
-      wordWrap: { width: 520 },
+      wordWrap: { width: boxWidth - 40 },
       stroke: '#000',
       strokeThickness: 3,
     });
@@ -1842,8 +1843,30 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   private setupCamera(): void {
-    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setLerp(0.08, 0.08);
+    const cam = this.cameras.main;
+    cam.startFollow(this.player, true, 0.08, 0.08);
+    cam.setLerp(0.08, 0.08);
+    this.applyCameraDeadzone();
+
+    // The viewport changes on rotation / fullscreen, so the deadzone has to be
+    // recomputed rather than staying at its create-time size.
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.applyCameraDeadzone, this);
+    this.events.once('shutdown', () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.applyCameraDeadzone, this);
+    });
+  }
+
+  /**
+   * On short viewports the camera also pans vertically, so a deadzone stops it
+   * bobbing with every jump. Taller viewports show the whole world and need none.
+   */
+  private applyCameraDeadzone(): void {
+    const cam = this.cameras.main;
+    if (this.scale.height < GAME_HEIGHT) {
+      cam.setDeadzone(this.scale.width * 0.3, this.scale.height * 0.45);
+    } else {
+      cam.setDeadzone();
+    }
   }
 
   // ── Colliders ──────────────────────────────────────────────

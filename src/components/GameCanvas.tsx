@@ -9,7 +9,6 @@ import { createGame, setMobileInput, triggerSkill, resizeGame } from '@/game/pha
 import type { GameStats, LevelResult, AchievementDef } from '@/game/types';
 import type { EcoPowerState } from '@/game/skills';
 import { isMuted, setMuted, unlockAudio } from '@/game/sound';
-import { OrientationGate } from '@/components/OrientationGate';
 
 /** Maps a skill's icon name to a lucide component for the HUD skill button. */
 const SKILL_ICONS: Record<string, React.ComponentType<{ size?: number | string; className?: string }>> = {
@@ -108,16 +107,26 @@ export function GameCanvas({
     // rotated game can stick as a black frame.
     const container = containerRef.current;
     let resizeTimer: number | undefined;
-    const observer = new ResizeObserver(() => {
+    const scheduleResize = () => {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
-        if (gameRef.current && container) resizeGame(gameRef.current, container);
+        if (gameRef.current) resizeGame(gameRef.current, container);
       }, 120);
-    });
+    };
+
+    // ResizeObserver catches container-only changes, while the window events
+    // cover rotation and fullscreen even where observer delivery is throttled.
+    const observer = new ResizeObserver(scheduleResize);
     observer.observe(container);
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', scheduleResize);
+    document.addEventListener('fullscreenchange', scheduleResize);
 
     return () => {
       observer.disconnect();
+      window.removeEventListener('resize', scheduleResize);
+      window.removeEventListener('orientationchange', scheduleResize);
+      document.removeEventListener('fullscreenchange', scheduleResize);
       window.clearTimeout(resizeTimer);
       game.destroy(true);
       gameRef.current = null;
@@ -166,7 +175,6 @@ export function GameCanvas({
     : { chip: 18, btn: 18, heart: 16, text: 'text-base', chipPad: 'px-3 py-1.5', btnPad: 'p-2', gap: 'gap-1.5', group: 'gap-3' };
 
   return (
-    <OrientationGate>
     <div
       ref={rootRef}
       className="relative h-[100dvh] flex flex-col bg-slate-900 overflow-hidden select-none"
@@ -345,7 +353,6 @@ export function GameCanvas({
         </>
       )}
     </div>
-    </OrientationGate>
   );
 }
 
