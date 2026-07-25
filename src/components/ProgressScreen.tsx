@@ -10,7 +10,7 @@ import { getSkill } from '@/game/skills';
 import {
   fetchPlayerProgress, createPlayerProgress, purchaseSkin, equipSkin,
   type PlayerProgressRow,
-} from '@/lib/supabase';
+} from '@/lib/gameData';
 
 interface ProgressScreenProps {
   playerName: string;
@@ -43,7 +43,7 @@ export function ProgressScreen({ playerName, onHome, onSkinChange }: ProgressScr
       if (!data) data = await createPlayerProgress(playerName);
       setProgress(data);
     } catch {
-      setError('Gagal memuat progres. Periksa koneksi.');
+      setError('Gagal memuat progres dari penyimpanan game.');
     } finally {
       setLoading(false);
     }

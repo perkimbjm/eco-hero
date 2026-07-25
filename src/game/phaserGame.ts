@@ -154,6 +154,21 @@ export function resizeGame(game: Phaser.Game, parent: HTMLElement): void {
   game.scale.refresh();
 }
 
+/**
+ * Freezes or resumes gameplay. Used while a confirmation overlay is up so the
+ * player cannot be hit — or run out of lives — while deciding.
+ */
+export function setGamePaused(game: Phaser.Game, paused: boolean): void {
+  const scene = game.scene.getScene('GameScene') as GameScene | null;
+  if (!scene) return;
+
+  if (paused) {
+    if (scene.scene.isActive()) scene.scene.pause();
+  } else if (scene.scene.isPaused()) {
+    scene.scene.resume();
+  }
+}
+
 /** Fires the equipped character's Eco Power skill (mobile skill button). */
 export function triggerSkill(game: Phaser.Game): void {
   const scene = game.scene.getScene('GameScene') as GameScene | null;

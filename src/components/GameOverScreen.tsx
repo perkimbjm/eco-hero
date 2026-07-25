@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Trophy, Home, RotateCcw, Medal, Trash2, Swords, Gem, BookOpen } from 'lucide-react';
 import type { GameStats, AchievementDef } from '@/game/types';
-import { submitScore, submitAchievement } from '@/lib/supabase';
+import { submitScore, submitAchievement } from '@/lib/gameData';
 
 interface GameOverScreenProps {
   stats: GameStats;
@@ -45,7 +45,7 @@ export function GameOverScreen({
       );
       setSubmitted(true);
     } catch {
-      setError('Gagal menyimpan skor. Periksa koneksi dan coba lagi.');
+      setError('Gagal menyimpan skor ke penyimpanan game. Coba lagi.');
     } finally {
       setSubmitting(false);
     }

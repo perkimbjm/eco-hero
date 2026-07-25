@@ -5,7 +5,8 @@ import {
   Mountain, Maximize, Minimize,
 } from 'lucide-react';
 import Phaser from 'phaser';
-import { createGame, setMobileInput, triggerSkill, resizeGame } from '@/game/phaserGame';
+import { createGame, setMobileInput, triggerSkill, resizeGame, setGamePaused } from '@/game/phaserGame';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { GameStats, LevelResult, AchievementDef } from '@/game/types';
 import type { EcoPowerState } from '@/game/skills';
 import { isMuted, setMuted, unlockAudio } from '@/game/sound';
@@ -29,7 +30,12 @@ interface GameCanvasProps {
   onLevelComplete: (result: LevelResult) => void;
   onGameOver: (stats: GameStats) => void;
   onAchievement: (achievement: AchievementDef) => void;
-  onQuit: () => void;
+  /** Asks App to quit — App confirms first, since a level in progress is lost. */
+  onRequestQuit: () => void;
+  /** Gameplay freezes and the quit confirmation is shown while true. */
+  quitPromptOpen: boolean;
+  onQuitCancel: () => void;
+  onQuitConfirm: () => void;
 }
 
 export function GameCanvas({
@@ -40,7 +46,10 @@ export function GameCanvas({
   onLevelComplete,
   onGameOver,
   onAchievement,
-  onQuit,
+  onRequestQuit,
+  quitPromptOpen,
+  onQuitCancel,
+  onQuitConfirm,
 }: GameCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -146,6 +155,14 @@ export function GameCanvas({
     return () => document.removeEventListener('fullscreenchange', onChange);
   }, []);
 
+  // Freeze the level while the quit prompt is up, so nothing can kill the
+  // player — or finish the level — while they are deciding.
+  useEffect(() => {
+    const game = gameRef.current;
+    if (!game) return;
+    setGamePaused(game, quitPromptOpen);
+  }, [quitPromptOpen]);
+
   const toggleFullscreen = useCallback(() => {
     const el = rootRef.current;
     if (!document.fullscreenElement) {
@@ -233,7 +250,7 @@ export function GameCanvas({
             {isFullscreen ? <Minimize size={hud.btn} className="text-white" /> : <Maximize size={hud.btn} className="text-white" />}
           </button>
           <button
-            onClick={onQuit}
+            onClick={onRequestQuit}
             className={`bg-slate-800/90 rounded-md sm:rounded-lg hover:bg-slate-700 transition-colors ${hud.btnPad}`}
             aria-label="Keluar"
           >
@@ -352,6 +369,16 @@ export function GameCanvas({
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={quitPromptOpen}
+        title="Keluar dari level ini?"
+        message="Progres di level yang sedang dimainkan akan hilang dan kamu kembali ke menu."
+        cancelLabel="Lanjut Main"
+        confirmLabel="Ya, Keluar"
+        onCancel={onQuitCancel}
+        onConfirm={onQuitConfirm}
+      />
     </div>
   );
 }

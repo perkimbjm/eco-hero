@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { StartScreen } from '@/components/StartScreen';
+import { StartScreen, type StartTab } from '@/components/StartScreen';
 import { StoryScreen } from '@/components/StoryScreen';
 import { GameCanvas } from '@/components/GameCanvas';
 import { LevelCompleteScreen } from '@/components/LevelCompleteScreen';
@@ -7,7 +7,8 @@ import { GameOverScreen } from '@/components/GameOverScreen';
 import { LeaderboardScreen } from '@/components/LeaderboardScreen';
 import { ProgressScreen } from '@/components/ProgressScreen';
 import { LEVELS } from '@/game/levels';
-import { fetchPlayerProgress, createPlayerProgress, updatePlayerProgress } from '@/lib/supabase';
+import { useHistoryNavigation } from '@/hooks/useHistoryNavigation';
+import { fetchPlayerProgress, createPlayerProgress, updatePlayerProgress } from '@/lib/gameData';
 import { checkNewBadges, getRankForXp } from '@/game/progression';
 import {
   loadProgress,
@@ -44,6 +45,24 @@ const LIVES_PER_LEVEL = 3;
 
 type PlayMode = 'campaign' | 'replay';
 
+/**
+ * One entry on the browser history stack. `startTab` is part of the view so the
+ * level map and secret-content pages are Back-able like any other screen.
+ */
+interface AppView {
+  screen: GameScreenName;
+  startTab: StartTab;
+}
+
+const HOME_VIEW: AppView = { screen: 'start', startTab: 'home' };
+
+/**
+ * How a transition affects history: `push` gives Back somewhere to return to,
+ * `replace` swaps the current screen (used when the previous one can no longer
+ * be resumed — gameplay that has already ended, a story beat already read).
+ */
+type NavMode = 'push' | 'replace';
+
 /** Builds the stats a level begins with: carried progress, but full lives. */
 function entryStatsFor(index: number, base: Partial<GameStats>): Partial<GameStats> {
   return {
@@ -56,7 +75,22 @@ function entryStatsFor(index: number, base: Partial<GameStats>): Partial<GameSta
 }
 
 function App() {
-  const [screen, setScreen] = useState<GameScreenName>('start');
+  // Leaving a level in progress throws the run away, so Back is intercepted
+  // there and answered with a confirmation instead of navigating straight away.
+  const [quitPromptOpen, setQuitPromptOpen] = useState(false);
+
+  const {
+    view,
+    push: pushView,
+    replace: replaceView,
+    back: backView,
+    reset: resetView,
+  } = useHistoryNavigation<AppView>(HOME_VIEW, {
+    interceptBack: (current) => current.screen === 'playing',
+    onInterceptBack: () => setQuitPromptOpen(true),
+  });
+  const { screen, startTab } = view;
+
   const [levelIndex, setLevelIndex] = useState(0);
   const [mode, setMode] = useState<PlayMode>('campaign');
   const [carriedStats, setCarriedStats] = useState<Partial<GameStats>>({});
@@ -76,9 +110,19 @@ function App() {
   const [progress, setProgress] = useState<LevelProgress>(() => loadProgress());
   const [starBreakdown, setStarBreakdown] = useState<StarBreakdown | null>(null);
   const [secretJustUnlocked, setSecretJustUnlocked] = useState(false);
-  const [startOnLevels, setStartOnLevels] = useState(false);
 
-  // Load equipped skin from Supabase on mount
+  /**
+   * Returning to the menu resets run-scoped state and re-reads stars from
+   * storage. This lives in an effect because Back can land here too, not just
+   * the in-app Home buttons.
+   */
+  useEffect(() => {
+    if (screen !== 'start') return;
+    unlockedAchievements.current = [];
+    setProgress(loadProgress());
+  }, [screen]);
+
+  // Load equipped skin from the local database on mount
   useEffect(() => {
     (async () => {
       try {
@@ -90,37 +134,54 @@ function App() {
   }, [playerName]);
 
   const beginLevel = useCallback(
-    (index: number, playMode: PlayMode, base: Partial<GameStats>, viaStory: boolean) => {
+    (
+      index: number,
+      playMode: PlayMode,
+      base: Partial<GameStats>,
+      viaStory: boolean,
+      nav: NavMode
+    ) => {
       const entry = entryStatsFor(index, base);
       setLevelIndex(index);
       setMode(playMode);
       setLevelEntryStats(entry);
       setCarriedStats(entry);
       setGameKey((k) => k + 1);
-      setScreen(viaStory ? 'story' : 'playing');
+
+      const next: AppView = { screen: viaStory ? 'story' : 'playing', startTab };
+      if (nav === 'push') pushView(next);
+      else replaceView(next);
     },
-    []
+    [startTab, pushView, replaceView]
   );
 
   // "Mulai Bermain" — a fresh campaign run from the very first level.
   const handleStart = useCallback(() => {
     unlockedAchievements.current = [];
-    beginLevel(0, 'campaign', {}, true);
+    beginLevel(0, 'campaign', {}, true, 'push');
+  }, [beginLevel]);
+
+  // Same fresh run, but launched from the victory screen — which Back should
+  // not be able to return to, so it replaces rather than stacks.
+  const handleRestartCampaign = useCallback(() => {
+    unlockedAchievements.current = [];
+    beginLevel(0, 'campaign', {}, true, 'replace');
   }, [beginLevel]);
 
   // Picking a level from the map: replay it standalone (returns to the map).
   const handleSelectLevel = useCallback(
     (index: number) => {
       unlockedAchievements.current = [];
-      beginLevel(index, 'replay', {}, false);
+      beginLevel(index, 'replay', {}, false, 'push');
     },
     [beginLevel]
   );
 
+  // The story beat has been read; Back from gameplay should skip past it.
   const handleStoryContinue = useCallback(() => {
     setGameKey((k) => k + 1);
-    setScreen('playing');
-  }, []);
+    replaceView({ screen: 'playing', startTab });
+  }, [replaceView, startTab]);
 
   const handleStatsChange = useCallback((stats: GameStats) => {
     setCarriedStats(stats);
@@ -138,9 +199,10 @@ function App() {
     setCarriedStats(result.stats);
     setCurrentTheme(LEVELS[levelIndex].theme);
     setLevelCompleteData(result);
-    setScreen('levelcomplete');
+    // The run is over, so Back must not drop the player into a finished level.
+    replaceView({ screen: 'levelcomplete', startTab });
 
-    // Save XP, coins, and stats to Supabase (best-effort).
+    // Save XP, coins, and stats to the local database (best-effort).
     try {
       let saved = await fetchPlayerProgress(playerName);
       if (!saved) saved = await createPlayerProgress(playerName);
@@ -196,30 +258,33 @@ function App() {
     } catch {
       /* keep the un-ranked result already set */
     }
-  }, [levelIndex, playerName]);
+  }, [levelIndex, playerName, replaceView, startTab]);
 
   const handleLevelContinue = useCallback(() => {
-    // A replay drops the player back onto the level map.
+    // A replay drops the player back onto the level map they launched from,
+    // which is precisely the entry below this one.
     if (mode === 'replay') {
-      setStartOnLevels(true);
-      setScreen('start');
+      backView();
       return;
     }
     const nextIndex = levelIndex + 1;
     if (nextIndex >= LEVELS.length) {
       setFinalStats(levelResult?.stats ?? (carriedStats as GameStats));
       setIsVictory(true);
-      setScreen('victory');
+      replaceView({ screen: 'victory', startTab });
     } else {
-      beginLevel(nextIndex, 'campaign', levelResult?.stats ?? carriedStats, true);
+      beginLevel(nextIndex, 'campaign', levelResult?.stats ?? carriedStats, true, 'replace');
     }
-  }, [mode, levelIndex, levelResult, carriedStats, beginLevel]);
+  }, [mode, levelIndex, levelResult, carriedStats, beginLevel, backView, replaceView, startTab]);
 
-  const handleGameOver = useCallback((stats: GameStats) => {
-    setFinalStats(stats);
-    setIsVictory(false);
-    setScreen('gameover');
-  }, []);
+  const handleGameOver = useCallback(
+    (stats: GameStats) => {
+      setFinalStats(stats);
+      setIsVictory(false);
+      replaceView({ screen: 'gameover', startTab });
+    },
+    [replaceView, startTab]
+  );
 
   const handleAchievement = useCallback((ach: AchievementDef) => {
     unlockedAchievements.current = [...unlockedAchievements.current, ach];
@@ -228,28 +293,40 @@ function App() {
   // Game over retries the CURRENT level from its entry snapshot (fresh lives).
   const handleRetryLevel = useCallback(() => {
     unlockedAchievements.current = [];
-    beginLevel(levelIndex, mode, levelEntryStats, false);
+    beginLevel(levelIndex, mode, levelEntryStats, false, 'replace');
   }, [beginLevel, levelIndex, mode, levelEntryStats]);
 
+  // Unwinds history to the menu, so Back from there leaves the site as usual.
   const handleHome = useCallback(() => {
-    unlockedAchievements.current = [];
-    setStartOnLevels(false);
-    setProgress(loadProgress());
-    setScreen('start');
-  }, []);
+    resetView();
+  }, [resetView]);
+
+  // Both routes out of a running level — the HUD's Home button and the device's
+  // Back button — funnel through the same prompt.
+  const handleRequestQuit = useCallback(() => setQuitPromptOpen(true), []);
+  const handleQuitCancel = useCallback(() => setQuitPromptOpen(false), []);
+  const handleQuitConfirm = useCallback(() => {
+    setQuitPromptOpen(false);
+    // Programmatic, so `interceptBack` lets it through.
+    backView();
+  }, [backView]);
+
+  // A level that ends on its own (cleared, or out of lives) must not leave a
+  // stale prompt behind for the next one.
+  useEffect(() => {
+    if (screen !== 'playing') setQuitPromptOpen(false);
+  }, [screen]);
+
+  const handleTabChange = useCallback(
+    (tab: StartTab) => {
+      // 'home' is the root, so getting there is a step back rather than forward.
+      if (tab === 'home') backView();
+      else pushView({ screen: 'start', startTab: tab });
+    },
+    [backView, pushView]
+  );
 
   switch (screen) {
-    case 'start':
-      return (
-        <StartScreen
-          progress={progress}
-          initialTab={startOnLevels ? 'levels' : 'home'}
-          onStart={handleStart}
-          onSelectLevel={handleSelectLevel}
-          onShowLeaderboard={() => setScreen('leaderboard')}
-          onShowProgress={() => setScreen('progress')}
-        />
-      );
     case 'story':
       return <StoryScreen levelId={levelIndex + 1} onContinue={handleStoryContinue} />;
     case 'playing':
@@ -263,7 +340,10 @@ function App() {
           onLevelComplete={handleLevelComplete}
           onGameOver={handleGameOver}
           onAchievement={handleAchievement}
-          onQuit={handleHome}
+          onRequestQuit={handleRequestQuit}
+          quitPromptOpen={quitPromptOpen}
+          onQuitCancel={handleQuitCancel}
+          onQuitConfirm={handleQuitConfirm}
         />
       );
     case 'levelcomplete':
@@ -288,7 +368,7 @@ function App() {
           isVictory={isVictory}
           levelName={LEVELS[levelIndex]?.name ?? ''}
           unlockedAchievements={unlockedAchievements.current}
-          onRestart={isVictory ? handleStart : handleRetryLevel}
+          onRestart={isVictory ? handleRestartCampaign : handleRetryLevel}
           onHome={handleHome}
         />
       );
@@ -302,14 +382,17 @@ function App() {
           onHome={handleHome}
         />
       );
+    case 'start':
     default:
       return (
         <StartScreen
           progress={progress}
+          tab={startTab}
+          onTabChange={handleTabChange}
           onStart={handleStart}
           onSelectLevel={handleSelectLevel}
-          onShowLeaderboard={() => setScreen('leaderboard')}
-          onShowProgress={() => setScreen('progress')}
+          onShowLeaderboard={() => pushView({ screen: 'leaderboard', startTab })}
+          onShowProgress={() => pushView({ screen: 'progress', startTab })}
         />
       );
   }

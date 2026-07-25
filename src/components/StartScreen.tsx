@@ -7,9 +7,13 @@ import { StarRating } from '@/components/StarRating';
 import { isLevelUnlocked, getLevelStars, totalStars, type LevelProgress } from '@/game/levelProgress';
 import type { ThemeKey } from '@/game/types';
 
+export type StartTab = 'home' | 'levels' | 'achievements' | 'secret';
+
 interface StartScreenProps {
   progress: LevelProgress;
-  initialTab?: 'home' | 'levels' | 'achievements' | 'secret';
+  /** Controlled by App so each tab gets its own browser-history entry. */
+  tab: StartTab;
+  onTabChange: (tab: StartTab) => void;
   onStart: () => void;
   onSelectLevel: (index: number) => void;
   onShowLeaderboard: () => void;
@@ -18,14 +22,14 @@ interface StartScreenProps {
 
 export function StartScreen({
   progress,
-  initialTab = 'home',
+  tab,
+  onTabChange,
   onStart,
   onSelectLevel,
   onShowLeaderboard,
   onShowProgress,
 }: StartScreenProps) {
   const [muted, setMutedState] = useState(isMuted());
-  const [tab, setTab] = useState<'home' | 'levels' | 'achievements' | 'secret'>(initialTab);
 
   const handleStart = () => {
     unlockAudio();
@@ -110,7 +114,7 @@ export function StartScreen({
                 Mulai Bermain
               </button>
               <button
-                onClick={() => setTab('levels')}
+                onClick={() => onTabChange('levels')}
                 className="flex items-center gap-2 px-6 py-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-lg shadow-lg transition-all"
               >
                 <BookOpen size={22} />
@@ -131,7 +135,7 @@ export function StartScreen({
                 Progres
               </button>
               <button
-                onClick={() => setTab('secret')}
+                onClick={() => onTabChange('secret')}
                 className={`flex items-center gap-2 px-6 py-4 rounded-xl font-bold text-lg shadow-lg transition-all active:scale-95 ${
                   progress.secretUnlocked
                     ? 'bg-gradient-to-r from-amber-400 to-yellow-500 hover:from-amber-500 hover:to-yellow-600 text-white'
@@ -253,7 +257,7 @@ export function StartScreen({
               })}
             </div>
             <button
-              onClick={() => setTab('home')}
+              onClick={() => onTabChange('home')}
               className="mt-4 px-6 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-semibold transition-all"
             >
               Kembali
@@ -306,7 +310,7 @@ export function StartScreen({
               </div>
             )}
             <button
-              onClick={() => setTab('home')}
+              onClick={() => onTabChange('home')}
               className="mt-4 px-6 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-semibold transition-all"
             >
               Kembali
@@ -333,7 +337,7 @@ export function StartScreen({
               ))}
             </div>
             <button
-              onClick={() => setTab('home')}
+              onClick={() => onTabChange('home')}
               className="mt-4 px-6 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white font-semibold transition-all"
             >
               Kembali

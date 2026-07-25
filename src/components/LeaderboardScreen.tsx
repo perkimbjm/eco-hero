@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Trophy, Home, RefreshCw, Trash2, Swords, Gem } from 'lucide-react';
-import { fetchTopScores, type HighScore } from '@/lib/supabase';
+import { fetchTopScores, type HighScore } from '@/lib/gameData';
 
 interface LeaderboardScreenProps {
   onHome: () => void;
