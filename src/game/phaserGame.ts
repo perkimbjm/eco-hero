@@ -114,15 +114,19 @@ export function startLevel(
   game: Phaser.Game,
   levelIndex: number,
   callbacks: GameCallbacks,
-  carriedStats?: Partial<GameStats>
+  carriedStats?: Partial<GameStats>,
+  skinId?: string
 ): void {
   const scene = game.scene.getScene('GameScene') as GameScene;
   if (scene) {
     game.scene.stop('GameScene');
+    // The skin decides both the Eco Power skill and the guardian's passive
+    // advantage, so it must survive a level restart.
     game.scene.start('GameScene', {
       levelIndex,
       callbacks,
       carriedStats,
+      skinId,
     });
   }
 }
@@ -174,5 +178,13 @@ export function triggerSkill(game: Phaser.Game): void {
   const scene = game.scene.getScene('GameScene') as GameScene | null;
   if (scene && scene.scene.isActive()) {
     scene.activateSkill();
+  }
+}
+
+/** Hurls the recycled energy at the mini boss (mobile throw button). */
+export function triggerThrow(game: Phaser.Game): void {
+  const scene = game.scene.getScene('GameScene') as GameScene | null;
+  if (scene && scene.scene.isActive()) {
+    scene.throwEnergy();
   }
 }

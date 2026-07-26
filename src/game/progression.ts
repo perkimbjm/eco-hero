@@ -77,6 +77,75 @@ export const COIN_REWARDS = {
 
 // ── Skins ───────────────────────────────────────────────────
 
+/**
+ * Passive advantage a guardian carries into every level. Each trait counters one
+ * specific environmental hazard, so picking the right guardian for a level is a
+ * real strategic choice — and teaches which element answers which problem.
+ */
+export type SkinTrait =
+  | 'ecoSurge'
+  | 'windproof'
+  | 'floodproof'
+  | 'toxicproof'
+  | 'smogsight'
+  | 'steadfast';
+
+export interface SkinTraitInfo {
+  name: string;
+  /** Short gameplay explanation shown on the skin card. */
+  description: string;
+  /** Where the advantage pays off, shown as a hint in the shop. */
+  bestFor: string;
+  /** Lucide icon name. */
+  icon: string;
+  cssColor: string;
+}
+
+export const SKIN_TRAIT_INFO: Record<SkinTrait, SkinTraitInfo> = {
+  ecoSurge: {
+    name: 'Eco Surge',
+    description: 'Eco Power terisi 35% lebih cepat, jadi skill siap lebih awal.',
+    bestFor: 'Semua level',
+    icon: 'zap',
+    cssColor: '#22c55e',
+  },
+  windproof: {
+    name: 'Kebal Angin',
+    description: 'Hembusan angin tidak mendorongmu dan tidak mempercepat musuh.',
+    bestFor: 'Pantai & Hutan',
+    icon: 'wind',
+    cssColor: '#38bdf8',
+  },
+  floodproof: {
+    name: 'Kebal Banjir',
+    description: 'Gelombang banjir menyeretmu, tapi tidak mengurangi nyawa.',
+    bestFor: 'Sungai, Gunung & Laut',
+    icon: 'waves',
+    cssColor: '#22d3ee',
+  },
+  toxicproof: {
+    name: 'Penawar Limbah',
+    description: 'Kolam limbah beracun justru ternetralkan saat kamu menyentuhnya.',
+    bestFor: 'TPA',
+    icon: 'flame',
+    cssColor: '#f97316',
+  },
+  smogsight: {
+    name: 'Mata Petir',
+    description: 'Kabut asap tetap tipis, pandanganmu tidak terhalang.',
+    bestFor: 'TPA & Kota',
+    icon: 'eye',
+    cssColor: '#facc15',
+  },
+  steadfast: {
+    name: 'Pijakan Kokoh',
+    description: 'Kebal hantaman tanah Raja Sampah dan terpental lebih sedikit.',
+    bestFor: 'Arena Boss TPA',
+    icon: 'mountain',
+    cssColor: '#ca8a04',
+  },
+};
+
 export interface SkinDef {
   id: string;
   name: string;
@@ -84,6 +153,8 @@ export interface SkinDef {
   price: number;
   /** Elemental Eco Power skill this character grants. */
   skill: SkillElement;
+  /** Passive advantage that counters one environmental hazard. */
+  trait: SkinTrait;
   colors: {
     body: number;
     bodyLight: number;
@@ -103,6 +174,7 @@ export const SKINS: SkinDef[] = [
     description: 'Pahlawan bumi andalan. Skill: Green Blast — gelombang energi hijau pembersih polusi.',
     price: 0,
     skill: 'green',
+    trait: 'ecoSurge',
     colors: {
       body: 0x15803d, bodyLight: 0x22c55e, head: 0xfde68a,
       cap: 0xdc2626, capBrim: 0xef4444, belt: 0xfacc15,
@@ -115,6 +187,7 @@ export const SKINS: SkinDef[] = [
     description: 'Penjaga angin hutan. Skill: Clean Wind — terbang sesaat & tarik sampah ringan.',
     price: 200,
     skill: 'wind',
+    trait: 'windproof',
     colors: {
       body: 0x166534, bodyLight: 0x86efac, head: 0xfde68a,
       cap: 0x15803d, capBrim: 0x22c55e, belt: 0x84cc16,
@@ -127,6 +200,7 @@ export const SKINS: SkinDef[] = [
     description: 'Penjaga air & sungai. Skill: River Clean Wave — tarik sampah dari jarak jauh.',
     price: 350,
     skill: 'aqua',
+    trait: 'floodproof',
     colors: {
       body: 0x0e7490, bodyLight: 0x67e8f9, head: 0xfde68a,
       cap: 0x0284c7, capBrim: 0x38bdf8, belt: 0x06b6d4,
@@ -139,6 +213,7 @@ export const SKINS: SkinDef[] = [
     description: 'Ahli panas daur ulang. Skill: Recycle Heat — kalahkan seluruh polusi seketika.',
     price: 500,
     skill: 'fire',
+    trait: 'toxicproof',
     colors: {
       body: 0xca8a04, bodyLight: 0xfde047, head: 0xfde68a,
       cap: 0x65a30d, capBrim: 0x84cc16, belt: 0x422006,
@@ -151,6 +226,7 @@ export const SKINS: SkinDef[] = [
     description: 'Pahlawan petir berteknologi nano. Skill: Eco Thunder — sambar polusi & buka sampah tersembunyi.',
     price: 800,
     skill: 'lightning',
+    trait: 'smogsight',
     colors: {
       body: 0x6366f1, bodyLight: 0xa5b4fc, head: 0xe0e7ff,
       cap: 0x0891b2, capBrim: 0x06b6d4, belt: 0x1e293b,
@@ -163,6 +239,7 @@ export const SKINS: SkinDef[] = [
     description: 'Penjaga bumi yang tangguh. Skill: Earthquake Recycle — gelombang tanah penghancur polusi & pelindung.',
     price: 650,
     skill: 'earth',
+    trait: 'steadfast',
     colors: {
       body: 0x92400e, bodyLight: 0xd97706, head: 0xfde68a,
       cap: 0x78350f, capBrim: 0xa16207, belt: 0x84cc16,

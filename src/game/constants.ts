@@ -57,6 +57,8 @@ export const GIANT_FLY_COOLDOWN_MS = 2200;
 export const TOXIC_WASTE_HEIGHT = 30;
 /** Strong upward pop so the player is thrown clear of the sludge. */
 export const TOXIC_KNOCKBACK_Y = -430;
+/** Reward for a Fire Guardian breaking down a pool by walking through it. */
+export const TOXIC_NEUTRALISE_SCORE = 150;
 
 // ── Flood wave (banjir) ──────────────────────────────────────
 
@@ -75,20 +77,44 @@ export const FLOOD_SPEED = 300;
 /** Strong upward toss so being caught by the flood reads clearly. */
 export const FLOOD_KNOCKBACK_Y = -380;
 
+// ── Skin traits (guardian passives) ──────────────────────────
+
+/** Green Guardian: how much faster the Eco Power meter fills. */
+export const ECO_SURGE_MULTIPLIER = 1.35;
+/** Earth Guardian: knockback scale, so a hit barely moves them. */
+export const STEADFAST_KNOCKBACK_SCALE = 0.5;
+
 // ── Mini boss: Raja Sampah TPA ───────────────────────────────
 
-export const BOSS_ENERGY_DURATION_MS = 10000;
+/**
+ * How long the recycled energy stays charged. Generous on purpose: the charge
+ * is a safe window to line up a throw, not a sprint timer. When it runs out the
+ * machine simply hands out another orb, so progress is never lost.
+ */
+export const BOSS_ENERGY_DURATION_MS = 20000;
 export const BOSS_PHASE_SCORE = 600;
 export const BOSS_DEFEAT_SCORE = 3000;
 export const BOSS_STUN_MS = 1400;
 export const BOSS_PATROL_SPEED = 46;
-export const BOSS_THROW_INTERVAL_MS = 2800;
-export const BOSS_SLAM_INTERVAL_MS = 7000;
+/**
+ * Junk throws only started actually arcing at the player once the velocity /
+ * group-add ordering bug was fixed, so the cadence is deliberately slack to
+ * keep the fight no harder than it was before.
+ */
+export const BOSS_THROW_INTERVAL_MS = 4200;
+export const BOSS_SLAM_INTERVAL_MS = 9000;
 export const BOSS_SLAM_TELEGRAPH_MS = 700;
-export const BOSS_SLAM_RADIUS = 230;
-export const BOSS_TRASH_MAX = 5;
-export const BOSS_TRASH_SPAWN_MS = 2400;
+/** Kept under the gap to the arena platforms so they always work as cover. */
+export const BOSS_SLAM_RADIUS = 180;
+export const BOSS_TRASH_MAX = 6;
+export const BOSS_TRASH_SPAWN_MS = 1800;
 export const BOSS_MACHINE_CYCLE_MS = 750;
+/** Speed of the energy orb the player hurls at the king. */
+export const BOSS_ORB_SPEED = 520;
+/** Speed at which a fresh orb homes in on the player, so it is never a fetch quest. */
+export const BOSS_ORB_MAGNET_SPEED = 600;
+/** How far left of the arena the king refuses to walk, keeping the sorting area safe. */
+export const BOSS_PATROL_MARGIN = 380;
 
 export const TRASH_COLORS: Record<
   TrashType,

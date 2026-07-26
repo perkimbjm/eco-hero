@@ -33,8 +33,11 @@ import {
   FLOOD_CREST_HEIGHT,
   FLOOD_SPEED,
   FLOOD_KNOCKBACK_Y,
+  ECO_SURGE_MULTIPLIER,
+  STEADFAST_KNOCKBACK_SCALE,
 } from '../constants';
-import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, getRankForXp, getSkinById } from '../progression';
+import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, SKIN_TRAIT_INFO, getRankForXp, getSkinById } from '../progression';
+import type { SkinTrait } from '../progression';
 import {
   ECO_POWER_MAX,
   ECO_POWER_GAIN,
@@ -155,11 +158,15 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   // ── Eco Power / Skill system ──────────────────────────────
   private skinId = 'default';
   private skill!: SkillDef;
+  /** Passive advantage the equipped guardian brings to this level's hazards. */
+  private skinTrait: SkinTrait = 'ecoSurge';
   private ecoPower = 0;
   private skillReady = false;
   private skillUsed = false;
   private keySkill?: Phaser.Input.Keyboard.Key;
   private skillHeld = false;
+  private keyThrow?: Phaser.Input.Keyboard.Key;
+  private throwHeld = false;
   /** While > time.now the Wind skill keeps the player aloft. */
   private flightUntil = 0;
   private flying = false;
@@ -195,6 +202,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.skinId = data.skinId ?? 'default';
     const skin = getSkinById(this.skinId) ?? getSkinById('default')!;
     this.skill = getSkill(skin.skill);
+    this.skinTrait = skin.trait;
     this.ecoPower = 0;
     this.skillReady = false;
     this.skillUsed = false;
@@ -287,6 +295,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.setupColliders();
 
     this.emitEcoPower();
+    this.announceTraitAdvantage();
 
     sound.startMusic();
     this.events.on('shutdown', () => {
@@ -473,29 +482,36 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   private createHealthPickups(): void {
     this.healthGroup = this.physics.add.group();
-    const pickups = this.level.healthPickups ?? [];
-    for (const h of pickups) {
-      const sprite = this.physics.add.sprite(h.x, h.y, 'heart') as Phaser.Physics.Arcade.Sprite;
-      (sprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
-      sprite.setImmovable(true);
-      this.tweens.add({
-        targets: sprite,
-        y: h.y - 8,
-        duration: 800,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.inOut',
-      });
-      this.tweens.add({
-        targets: sprite,
-        alpha: { from: 0.7, to: 1 },
-        scale: { from: 0.9, to: 1.1 },
-        duration: 600,
-        yoyo: true,
-        repeat: -1,
-      });
-      this.healthGroup.add(sprite);
+    for (const h of this.level.healthPickups ?? []) {
+      this.spawnHealthPickup(h.x, h.y);
     }
+  }
+
+  /**
+   * Drops a floating heart into the world. Authored pickups use it at level
+   * build time; the boss uses it to top the player up between phases.
+   */
+  spawnHealthPickup(x: number, y: number): void {
+    const sprite = this.physics.add.sprite(x, y, 'heart') as Phaser.Physics.Arcade.Sprite;
+    (sprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    sprite.setImmovable(true);
+    this.tweens.add({
+      targets: sprite,
+      y: y - 8,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut',
+    });
+    this.tweens.add({
+      targets: sprite,
+      alpha: { from: 0.7, to: 1 },
+      scale: { from: 0.9, to: 1.1 },
+      duration: 600,
+      yoyo: true,
+      repeat: -1,
+    });
+    this.healthGroup.add(sprite);
   }
 
   private collectHealth(sprite: Phaser.Physics.Arcade.Sprite): void {
@@ -732,8 +748,19 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     }
 
     if (this.level.boss) {
-      this.boss = new TrashKingBoss(this, this.level.boss, () => this.onBossDefeated());
+      this.boss = new TrashKingBoss(
+        this,
+        this.level.boss,
+        () => this.onBossDefeated(),
+        (charged) => this.callbacks.onThrowReadyChange?.(charged)
+      );
     }
+  }
+
+  /** Hurls the recycled energy at the mini boss (Z key / mobile throw button). */
+  public throwEnergy(): void {
+    if (this.state !== 'playing') return;
+    this.boss?.throwOrb();
   }
 
   private onBossDefeated(): void {
@@ -785,6 +812,31 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     return this.time.now <= this.invincibleUntil;
   }
 
+  hasTrait(trait: SkinTrait): boolean {
+    return this.skinTrait === trait;
+  }
+
+  /**
+   * Tells the player when their guardian's passive actually counters this
+   * level's hazard — the payoff that makes picking a guardian a real decision.
+   */
+  private announceTraitAdvantage(): void {
+    const challenge = LEVEL_CHALLENGES[this.level.theme];
+    const counters =
+      (this.skinTrait === 'windproof' && challenge?.type === 'wind') ||
+      (this.skinTrait === 'floodproof' && challenge?.type === 'flood') ||
+      (this.skinTrait === 'smogsight' && challenge?.type === 'smog') ||
+      (this.skinTrait === 'toxicproof' && (this.level.toxicWaste?.length ?? 0) > 0) ||
+      (this.skinTrait === 'steadfast' && !!this.level.boss);
+    if (!counters) return;
+
+    const info = SKIN_TRAIT_INFO[this.skinTrait];
+    this.time.delayedCall(1200, () => {
+      if (this.state !== 'playing') return;
+      this.banner(`KEUNGGULAN AKTIF: ${info.name}!`, info.cssColor);
+    });
+  }
+
   /** Damage entry point shared by hazards, the boss and its projectiles. */
   damagePlayer(sourceX: number, knockUpVelocity = -200): void {
     if (this.state !== 'playing') return;
@@ -825,7 +877,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   private addEcoPower(amount: number): void {
     if (this.skillUsed || this.state !== 'playing') return;
     if (this.ecoPower >= ECO_POWER_MAX) return;
-    this.ecoPower = Math.min(ECO_POWER_MAX, this.ecoPower + amount);
+    // Green Guardian's Eco Surge: the meter fills faster, so the skill lands sooner.
+    const gain = this.hasTrait('ecoSurge') ? amount * ECO_SURGE_MULTIPLIER : amount;
+    this.ecoPower = Math.min(ECO_POWER_MAX, this.ecoPower + gain);
     if (this.ecoPower >= ECO_POWER_MAX && !this.skillReady) {
       this.skillReady = true;
       this.onSkillReady();
@@ -1828,6 +1882,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.keyLeft = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
       this.keyRight = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
       this.keySkill = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.X);
+      this.keyThrow = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Z);
     }
   }
 
@@ -1922,6 +1977,11 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       });
       this.physics.add.overlap(this.player, boss.projectileGroup, (_p, proj) => {
         boss.handleProjectileContact(proj as Phaser.Physics.Arcade.Sprite);
+      });
+      // Sprite-first ordering to match every other overlap here: Phaser hands
+      // the callback its arguments in the order the pair was registered.
+      this.physics.add.overlap(boss.sprite, boss.energyShotGroup, (_b, shot) => {
+        boss.handleEnergyShotHit(shot as Phaser.Physics.Arcade.Sprite);
       });
     }
   }
@@ -2105,10 +2165,11 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     // Screen shake
     this.cameras.main.shake(SCREEN_SHAKE_DURATION / 1000, SCREEN_SHAKE_INTENSITY / 1000);
 
-    // Knockback
+    // Knockback — the Earth Guardian's footing keeps them closer to where they stood.
     const dir = this.player.x < sourceX ? -1 : 1;
-    this.player.setVelocityX(dir * KNOCKBACK_VELOCITY);
-    this.player.setVelocityY(knockUpVelocity);
+    const knockScale = this.hasTrait('steadfast') ? STEADFAST_KNOCKBACK_SCALE : 1;
+    this.player.setVelocityX(dir * KNOCKBACK_VELOCITY * knockScale);
+    this.player.setVelocityY(knockUpVelocity * knockScale);
 
     // Damage particles
     this.burst(this.player.x, this.player.y, 0xef4444, 12);
@@ -2319,6 +2380,13 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     }
     this.skillHeld = skillDown;
 
+    // Boss energy throw — edge-triggered Z key.
+    const throwDown = this.keyThrow?.isDown ?? false;
+    if (throwDown && !this.throwHeld) {
+      this.throwEnergy();
+    }
+    this.throwHeld = throwDown;
+
     if (this.flying) {
       // Wind skill: hovering flight overrides the normal jump/gravity model.
       this.updateFlight(now, jumpDown);
@@ -2448,8 +2516,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   private updateEnemies(): void {
     const challenge = LEVEL_CHALLENGES[this.level.theme];
-    const speedMultiplier = challenge?.type === 'wind' ? 1.6 : 1;
-    const enemySpeed = this.baseEnemySpeed * speedMultiplier;
+    // The Wind Guardian calms the gusts, so pollution is not blown along faster.
+    const windDrivenEnemies = challenge?.type === 'wind' && !this.hasTrait('windproof');
+    const enemySpeed = this.baseEnemySpeed * (windDrivenEnemies ? 1.6 : 1);
 
     this.enemyGroup.getChildren().forEach((obj) => {
       const enemy = obj as EnemySprite;
@@ -2583,8 +2652,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         });
       }
 
-      // Push player backward
-      if (this.player.body) {
+      // Push player backward — the Wind Guardian stands firm through the gust.
+      if (this.player.body && !this.hasTrait('windproof')) {
         this.player.setVelocityX(this.player.body.velocity.x - 30 * dt * 60);
       }
 
@@ -2637,9 +2706,17 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         this.player.setVelocityX(FLOOD_SPEED * 0.5);
 
         if (now > this.invincibleUntil) {
-          this.burst(this.player.x, this.player.y, 0x67e8f9, 16);
-          this.floatScore(this.player.x, this.player.y - 26, 'Terseret banjir!', '#a5f3fc');
-          this.applyDamage(wave.x + FLOOD_WAVE_WIDTH / 2, FLOOD_KNOCKBACK_Y);
+          // The Aqua Guardian rides the wave instead of drowning in it: still
+          // carried along, but never loses a life to the water.
+          if (this.hasTrait('floodproof')) {
+            this.invincibleUntil = now + INVINCIBILITY_MS;
+            this.burst(this.player.x, this.player.y, 0x22d3ee, 16);
+            this.floatScore(this.player.x, this.player.y - 26, 'Kebal banjir!', '#a5f3fc');
+          } else {
+            this.burst(this.player.x, this.player.y, 0x67e8f9, 16);
+            this.floatScore(this.player.x, this.player.y - 26, 'Terseret banjir!', '#a5f3fc');
+            this.applyDamage(wave.x + FLOOD_WAVE_WIDTH / 2, FLOOD_KNOCKBACK_Y);
+          }
         }
       }
     }
@@ -2690,12 +2767,18 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     if (!this.smogActive && this.smogCycleTimer <= 0) {
       this.smogActive = true;
       this.smogCycleTimer = 9000 + Math.random() * 4000;
-      this.showChallengeWarning('Asap! Pandangan mengecil!');
+
+      // The Lightning Guardian sees straight through the haze.
+      const smogsight = this.hasTrait('smogsight');
+      this.showChallengeWarning(
+        smogsight ? 'Asap! Mata Petir menembus kabut.' : 'Asap! Pandangan mengecil!',
+        smogsight ? '#facc15' : '#fbbf24'
+      );
 
       // Fade in to near-opaque over 1s, hold 3s, fade out over 1.5s
       this.tweens.add({
         targets: this.smogOverlay,
-        alpha: 0.85,
+        alpha: smogsight ? 0.25 : 0.85,
         duration: 1000,
         yoyo: true,
         hold: 3000,

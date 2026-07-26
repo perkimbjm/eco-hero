@@ -2,10 +2,10 @@ import { useRef, useEffect, useState, useCallback } from 'react';
 import {
   Heart, Trash2, Trophy, Volume2, VolumeX, Home, Sparkles,
   ArrowLeft, ArrowRight, ArrowUp, Zap, Leaf, Waves, Wind, Flame, Shield,
-  Mountain, Maximize, Minimize,
+  Mountain, Maximize, Minimize, Recycle,
 } from 'lucide-react';
 import Phaser from 'phaser';
-import { createGame, setMobileInput, triggerSkill, resizeGame, setGamePaused } from '@/game/phaserGame';
+import { createGame, setMobileInput, triggerSkill, triggerThrow, resizeGame, setGamePaused } from '@/game/phaserGame';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import type { GameStats, LevelResult, AchievementDef } from '@/game/types';
 import type { EcoPowerState } from '@/game/skills';
@@ -72,6 +72,8 @@ export function GameCanvas({
   const [achievementPopup, setAchievementPopup] = useState<AchievementDef | null>(null);
   const [isTouch, setIsTouch] = useState(false);
   const [ecoPower, setEcoPower] = useState<EcoPowerState | null>(null);
+  /** True while the player carries recycled energy to hurl at the mini boss. */
+  const [throwReady, setThrowReady] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -105,6 +107,7 @@ export function GameCanvas({
           setTimeout(() => setAchievementPopup(null), 3000);
         },
         onEcoPowerChange: (state) => setEcoPower(state),
+        onThrowReadyChange: (ready) => setThrowReady(ready),
         onStoryRequest: () => {},
       },
     });
@@ -178,6 +181,10 @@ export function GameCanvas({
 
   const handleSkill = useCallback(() => {
     if (gameRef.current) triggerSkill(gameRef.current);
+  }, []);
+
+  const handleThrow = useCallback(() => {
+    if (gameRef.current) triggerThrow(gameRef.current);
   }, []);
 
   const livesArray = Array.from({ length: Math.max(0, stats.lives) });
@@ -326,6 +333,31 @@ export function GameCanvas({
           <SkillIcon size={28} />
           <span className="text-[9px] mt-0.5 tracking-wide">
             {isTouch ? 'SKILL' : 'TEKAN X'}
+          </span>
+        </button>
+      )}
+
+      {/* Boss energy throw — only while carrying recycled energy. Sits above the
+          skill button so both can be on screen at once. */}
+      {throwReady && (
+        <button
+          onClick={handleThrow}
+          onContextMenu={(e) => e.preventDefault()}
+          draggable={false}
+          aria-label="Lempar Energi Daur Ulang ke boss"
+          className="absolute z-40 bottom-44 right-3 sm:bottom-[13rem] sm:right-6 w-[70px] h-[70px] sm:w-20 sm:h-20 rounded-full flex flex-col items-center justify-center text-white font-extrabold shadow-2xl active:scale-90 transition-transform touch-none animate-skill-ready"
+          style={{
+            background: 'radial-gradient(circle at 35% 30%, #4ade80, #16a34acc)',
+            boxShadow: '0 0 24px #4ade80, 0 6px 16px rgba(0,0,0,0.4)',
+            border: '3px solid rgba(255,255,255,0.8)',
+            WebkitTouchCallout: 'none',
+            WebkitUserSelect: 'none',
+            userSelect: 'none',
+          }}
+        >
+          <Recycle size={28} />
+          <span className="text-[9px] mt-0.5 tracking-wide">
+            {isTouch ? 'LEMPAR' : 'TEKAN Z'}
           </span>
         </button>
       )}

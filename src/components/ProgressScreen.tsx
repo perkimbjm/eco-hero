@@ -3,7 +3,7 @@ import {
   Home, Sprout, Swords, Shield, Crown, Award, Trash2, Waves, Droplet, Gem, Shirt, Coins, Star, Lock, Check, Sparkles, RefreshCw,
 } from 'lucide-react';
 import {
-  ECO_RANKS, getRankForXp, getRankProgress, SKINS, BADGES,
+  ECO_RANKS, getRankForXp, getRankProgress, SKINS, BADGES, SKIN_TRAIT_INFO,
   type PlayerProgressData,
 } from '@/game/progression';
 import { getSkill } from '@/game/skills';
@@ -232,6 +232,20 @@ export function ProgressScreen({ playerName, onHome, onSkinChange }: ProgressScr
                   >
                     <Sparkles size={9} /> {getSkill(skin.skill).name}
                   </div>
+                  {(() => {
+                    const trait = SKIN_TRAIT_INFO[skin.trait];
+                    return (
+                      <div
+                        title={trait.description}
+                        className="flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded mb-1"
+                        style={{ background: `${trait.cssColor}22`, color: trait.cssColor }}
+                      >
+                        <Shield size={9} className="flex-shrink-0" />
+                        <span className="truncate">{trait.name}</span>
+                        <span className="ml-auto text-slate-400 font-normal truncate">{trait.bestFor}</span>
+                      </div>
+                    );
+                  })()}
                   <p className="text-slate-400 text-[10px] leading-tight mb-2 h-8 overflow-hidden">{skin.description}</p>
                   {owned ? (
                     <button

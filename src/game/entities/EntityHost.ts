@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import type { SkinTrait } from '../progression';
 
 export interface AwardOptions {
   score?: number;
@@ -21,8 +22,12 @@ export interface EntityHost {
   getPlatforms(): Phaser.Physics.Arcade.StaticGroup;
   isPlaying(): boolean;
   isInvincible(): boolean;
+  /** True when the equipped guardian's passive advantage matches `trait`. */
+  hasTrait(trait: SkinTrait): boolean;
   damagePlayer(sourceX: number, knockUpVelocity?: number): void;
   bouncePlayer(velocity?: number): void;
+  /** Drops a floating heart into the world (used for between-phase top-ups). */
+  spawnHealthPickup(x: number, y: number): void;
   burst(x: number, y: number, color: number, count?: number): void;
   floatScore(x: number, y: number, text: string, color: string): void;
   banner(text: string, color?: string): void;

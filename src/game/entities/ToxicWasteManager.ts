@@ -1,5 +1,10 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, TOXIC_KNOCKBACK_Y, TOXIC_WASTE_HEIGHT } from '../constants';
+import {
+  GAME_HEIGHT,
+  TOXIC_KNOCKBACK_Y,
+  TOXIC_NEUTRALISE_SCORE,
+  TOXIC_WASTE_HEIGHT,
+} from '../constants';
 import type { ToxicWasteDef } from '../types';
 import type { EntityHost } from './EntityHost';
 import * as sound from '../sound';
@@ -184,6 +189,18 @@ export class ToxicWasteManager {
     if (pool?.cleared) return;
     // Push the player back the way they came so they land on solid ground.
     const sourceX = pool ? pool.centerX : player.x;
+
+    // Fire Guardian's antidote: the sludge is broken down on contact instead of
+    // draining a life. Reuses the same neutralise path as the Earth skill.
+    if (this.host.hasTrait('toxicproof')) {
+      const cleared = this.clear(sourceX, player.y, pool ? 40 : 0);
+      if (cleared > 0) {
+        sound.playToxic();
+        this.host.floatScore(player.x, player.y - 26, 'Limbah dinetralkan!', '#fed7aa');
+        this.host.award({ score: TOXIC_NEUTRALISE_SCORE * cleared });
+      }
+      return;
+    }
 
     sound.playToxic();
     this.host.burst(player.x, player.y + 16, 0x84cc16, 16);

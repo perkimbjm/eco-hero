@@ -3,6 +3,9 @@ import {
   BOSS_DEFEAT_SCORE,
   BOSS_ENERGY_DURATION_MS,
   BOSS_MACHINE_CYCLE_MS,
+  BOSS_ORB_MAGNET_SPEED,
+  BOSS_ORB_SPEED,
+  BOSS_PATROL_MARGIN,
   BOSS_PATROL_SPEED,
   BOSS_PHASE_SCORE,
   BOSS_SLAM_INTERVAL_MS,
@@ -27,6 +30,8 @@ const GROUND_Y = GAME_HEIGHT - 80;
 const BOSS_BODY_WIDTH = 110;
 const BOSS_BODY_HEIGHT = 150;
 const PROJECTILE_LIFETIME_MS = 4000;
+/** How long a thrown energy orb flies before it is written off as a miss. */
+const ENERGY_SHOT_LIFETIME_MS = 2200;
 
 interface BossTrashSprite extends Phaser.Physics.Arcade.Sprite {
   trashType: TrashType;
@@ -42,8 +47,13 @@ type SlamPhase = 'idle' | 'telegraph' | 'airborne';
  * Defeat loop, one pass per phase:
  *   1. pick up trash matching the requested category,
  *   2. feed it into the recycling machine,
- *   3. the machine outputs an energy orb,
- *   4. grab the orb and ram the boss with the recycled energy.
+ *   3. the machine outputs an energy orb, which flies to the player,
+ *   4. hurl the energy at the king from a safe distance (or ram him with it).
+ *
+ * The loop is deliberately forgiving: a wrong category is handed back rather
+ * than destroyed, the charge makes the player untouchable and staggers the
+ * king, and running the charge down only costs time — the machine reissues the
+ * orb. Nothing here should ever send the player back to the start of a phase.
  */
 export class TrashKingBoss {
   readonly sprite: Phaser.Physics.Arcade.Sprite;
@@ -51,12 +61,15 @@ export class TrashKingBoss {
   readonly trashGroup: Phaser.Physics.Arcade.Group;
   readonly orbGroup: Phaser.Physics.Arcade.Group;
   readonly projectileGroup: Phaser.Physics.Arcade.Group;
+  /** Energy orbs the player has thrown at the king. */
+  readonly energyShotGroup: Phaser.Physics.Arcade.Group;
 
   private readonly host: EntityHost;
   private readonly scene: Phaser.Scene;
   private readonly def: BossDef;
   private readonly hud: BossHud;
   private readonly onDefeated: () => void;
+  private readonly onChargeChange: (charged: boolean) => void;
 
   private hp: number;
   private phaseIndex = 0;
@@ -78,16 +91,23 @@ export class TrashKingBoss {
   private lastHintAt = 0;
   private slamPhase: SlamPhase = 'idle';
 
-  constructor(host: EntityHost, def: BossDef, onDefeated: () => void) {
+  constructor(
+    host: EntityHost,
+    def: BossDef,
+    onDefeated: () => void,
+    onChargeChange: (charged: boolean) => void = () => {}
+  ) {
     this.host = host;
     this.scene = host.getScene();
     this.def = def;
     this.onDefeated = onDefeated;
+    this.onChargeChange = onChargeChange;
     this.hp = def.phases.length;
 
     this.trashGroup = this.scene.physics.add.group();
     this.orbGroup = this.scene.physics.add.group();
     this.projectileGroup = this.scene.physics.add.group();
+    this.energyShotGroup = this.scene.physics.add.group();
 
     this.machine = this.createMachine();
     this.sprite = this.createBoss();
@@ -187,6 +207,7 @@ export class TrashKingBoss {
     }
 
     this.updateCarriedIcon();
+    this.updateOrbMagnet(delta);
     this.updateCharge(now);
     this.updateHudTask(now);
 
@@ -195,6 +216,22 @@ export class TrashKingBoss {
     this.updateMovement(now, delta);
     this.updateAttacks(now);
     this.updateArenaTrash(now);
+  }
+
+  /**
+   * Sets the charged state in one place so the aura, the HUD throw button and
+   * the boss's stagger can never drift out of sync with each other.
+   */
+  private setCharged(charged: boolean): void {
+    if (this.charged === charged) return;
+    this.charged = charged;
+    if (charged) {
+      this.attachAura();
+    } else {
+      this.aura?.destroy();
+      this.aura = null;
+    }
+    this.onChargeChange(charged);
   }
 
   private engage(): void {
@@ -226,12 +263,14 @@ export class TrashKingBoss {
 
     // The king guards the right half; the sorting area near the machine stays
     // his-free so collecting trash is not a constant stream of contact damage.
-    const minX = this.def.arenaStart + 300;
+    const minX = this.def.arenaStart + BOSS_PATROL_MARGIN;
     const maxX = this.def.arenaEnd - 70;
     if (this.sprite.x <= minX) this.patrolDir = 1;
     if (this.sprite.x >= maxX) this.patrolDir = -1;
 
-    this.sprite.setVelocityX(this.patrolDir * BOSS_PATROL_SPEED);
+    // Recycled energy makes him cower: an easy target while the player lines up.
+    const speed = this.charged ? BOSS_PATROL_SPEED * 0.4 : BOSS_PATROL_SPEED;
+    this.sprite.setVelocityX(this.patrolDir * speed);
     // Lumbering waddle, tied to travel rather than wall-clock time.
     this.sprite.setRotation(Math.sin(now / 260) * 0.035);
     void delta;
@@ -240,15 +279,23 @@ export class TrashKingBoss {
   private updateAttacks(now: number): void {
     if (now < this.stunUntil) return;
 
+    // Staggered by the recycled energy — he cannot fight back while it is out.
+    if (this.charged) {
+      this.nextSlamAt = Math.max(this.nextSlamAt, now + 1200);
+      this.nextThrowAt = Math.max(this.nextThrowAt, now + 1200);
+      return;
+    }
+
     if (this.slamPhase === 'idle' && now >= this.nextSlamAt) {
       this.startSlam();
       return;
     }
     if (this.slamPhase === 'idle' && now >= this.nextThrowAt) {
       this.throwJunk();
-      // Gets more frantic as the king loses phases.
-      const urgency = 1 - (this.def.phases.length - this.hp) * 0.18;
-      this.nextThrowAt = now + BOSS_THROW_INTERVAL_MS * Math.max(0.5, urgency);
+      // Gets a little more frantic as the king loses phases, but never enough
+      // to turn the last phase into a bullet hell.
+      const urgency = 1 - (this.def.phases.length - this.hp) * 0.06;
+      this.nextThrowAt = now + BOSS_THROW_INTERVAL_MS * Math.max(0.8, urgency);
     }
   }
 
@@ -279,6 +326,10 @@ export class TrashKingBoss {
     body.setAllowGravity(true);
     body.setGravityY(projectileGravity);
 
+    // Join the group first: Arcade group.add() resets body velocity, so aiming
+    // beforehand would drop the junk straight down at the king's feet.
+    this.projectileGroup.add(proj);
+
     // Solve a fixed-duration arc so the throw always reaches the player.
     // World gravity is zero here — every body carries its own — so the only
     // acceleration acting on the projectile is the value set just above.
@@ -288,8 +339,6 @@ export class TrashKingBoss {
     const vy = (player.y - startY - 0.5 * gravity * flight * flight) / flight;
     proj.setVelocity(Phaser.Math.Clamp(vx, -520, 520), vy);
     proj.setAngularVelocity(300);
-
-    this.projectileGroup.add(proj);
     sound.playBossRoar();
     this.host.burst(startX, startY, 0x78716c, 6);
 
@@ -357,10 +406,20 @@ export class TrashKingBoss {
     const player = this.host.player;
     const grounded = !!player.body && (player.body.blocked.down || player.body.touching.down);
     const inRange = Math.abs(player.x - this.sprite.x) <= BOSS_SLAM_RADIUS;
-    if (grounded && inRange && !this.host.isInvincible() && this.host.isPlaying()) {
-      this.host.floatScore(player.x, player.y - 30, 'Terhantam!', '#fecaca');
-      this.host.damagePlayer(this.sprite.x);
+    if (!grounded || !inRange || this.host.isInvincible() || !this.host.isPlaying()) return;
+
+    // Earth Guardian keeps their footing; recycled energy shrugs the blow off.
+    if (this.host.hasTrait('steadfast')) {
+      this.host.floatScore(player.x, player.y - 30, 'Pijakan kokoh!', '#fde68a');
+      return;
     }
+    if (this.charged) {
+      this.host.floatScore(player.x, player.y - 30, 'Energi menahan!', '#bbf7d0');
+      return;
+    }
+
+    this.host.floatScore(player.x, player.y - 30, 'Terhantam!', '#fecaca');
+    this.host.damagePlayer(this.sprite.x);
   }
 
   // ── Recycle loop ───────────────────────────────────────────
@@ -379,7 +438,12 @@ export class TrashKingBoss {
     const hi = this.def.arenaStart + (this.def.arenaEnd - this.def.arenaStart) * 0.5;
     const x = lo + Math.random() * Math.max(1, hi - lo);
 
-    const sprite = this.scene.physics.add.sprite(x, GROUND_Y - 260, `trash_${type}`) as BossTrashSprite;
+    this.dropTrash(type, x, GROUND_Y - 260);
+  }
+
+  /** Drops a collectable piece of trash into the arena at `x`/`y`. */
+  private dropTrash(type: TrashType, x: number, y: number): void {
+    const sprite = this.scene.physics.add.sprite(x, y, `trash_${type}`) as BossTrashSprite;
     sprite.trashType = type;
     sprite.taken = false;
     sprite.setDepth(26);
@@ -391,7 +455,7 @@ export class TrashKingBoss {
     sprite.setDragX(120);
     sprite.setVelocityX((Math.random() - 0.5) * 60);
 
-    // A falling marker so the player can see where the next piece will land.
+    // A falling marker so the player can see where the piece will land.
     const marker = this.scene.add.circle(x, GROUND_Y - 6, 14, 0xfacc15, 0.35);
     marker.setDepth(16);
     this.scene.tweens.add({
@@ -481,16 +545,21 @@ export class TrashKingBoss {
   }
 
   private rejectWrongCategory(): void {
-    const wrong = TRASH_COLORS[this.carriedType!].label;
+    const wrongType = this.carriedType!;
+    const wrong = TRASH_COLORS[wrongType].label;
     const needed = TRASH_COLORS[this.requiredType].label;
-    this.machineBusyUntil = this.scene.time.now + 700;
+    this.machineBusyUntil = this.scene.time.now + 350;
 
     sound.playReject();
     this.machine.setTint(0xef4444);
     this.scene.time.delayedCall(400, () => this.machine.clearTint());
     this.host.burst(this.machine.x, this.machine.y - 40, 0xef4444, 10);
     this.host.floatScore(this.machine.x, this.machine.y - 100, `${wrong} salah! Cari ${needed}`, '#fca5a5');
+
+    // Hand the item back instead of destroying it — sorting wrong should teach,
+    // not punish with a walk back across the arena.
     this.clearCarried();
+    this.dropTrash(wrongType, this.machine.x + 70, GROUND_Y - 120);
   }
 
   private recycleCarried(): void {
@@ -527,14 +596,8 @@ export class TrashKingBoss {
     this.host.burst(orb.x, orb.y, 0x4ade80, 14);
     this.host.floatScore(orb.x, orb.y - 24, 'Energi Daur Ulang!', '#bbf7d0');
 
-    this.scene.tweens.add({
-      targets: orb,
-      y: orb.y - 14,
-      duration: 800,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.inOut',
-    });
+    // Only a scale pulse — a positional bob would fight the magnet in
+    // updateOrbMagnet() and leave the orb hovering out of reach.
     this.scene.tweens.add({
       targets: orb,
       scale: { from: 0.8, to: 1.2 },
@@ -546,17 +609,81 @@ export class TrashKingBoss {
     this.orbGroup.add(orb);
   }
 
+  /**
+   * Fresh orbs home in on the player rather than sitting where they spawned —
+   * fetching them across the arena was pure travel time, not a decision.
+   */
+  private updateOrbMagnet(delta: number): void {
+    if (this.defeated || this.orbGroup.getLength() === 0) return;
+    const player = this.host.player;
+    const step = (BOSS_ORB_MAGNET_SPEED * delta) / 1000;
+
+    this.orbGroup.getChildren().slice().forEach((obj) => {
+      const orb = obj as Phaser.Physics.Arcade.Sprite;
+      if (!orb.active) return;
+      const dist = Phaser.Math.Distance.Between(orb.x, orb.y, player.x, player.y);
+      if (dist <= 26) {
+        this.handleOrbPickup(orb);
+        return;
+      }
+      const angle = Phaser.Math.Angle.Between(orb.x, orb.y, player.x, player.y);
+      orb.setPosition(orb.x + Math.cos(angle) * step, orb.y + Math.sin(angle) * step);
+    });
+  }
+
   handleOrbPickup(orb: Phaser.Physics.Arcade.Sprite): void {
     if (this.defeated || !this.host.isPlaying() || !orb.active) return;
 
-    this.charged = true;
     this.chargeUntil = this.scene.time.now + BOSS_ENERGY_DURATION_MS;
     this.clearCarried();
 
     sound.playEnergy();
     this.host.burst(orb.x, orb.y, 0x22c55e, 20);
+    this.scene.tweens.killTweensOf(orb);
     orb.destroy();
-    this.attachAura();
+    this.setCharged(true);
+  }
+
+  /**
+   * Hurls the recycled energy at the king from wherever the player stands.
+   * Ramming him still works, but nobody should have to close the distance.
+   */
+  throwOrb(): void {
+    if (!this.charged || this.defeated || !this.host.isPlaying()) return;
+
+    const player = this.host.player;
+    const shot = this.scene.physics.add.sprite(player.x, player.y - 10, 'energy_orb');
+    shot.setDepth(35);
+    (shot.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+
+    this.scene.tweens.add({
+      targets: shot,
+      scale: { from: 0.7, to: 1.15 },
+      duration: 260,
+      yoyo: true,
+      repeat: -1,
+    });
+
+    // Join the group *before* aiming: Arcade group.add() resets body velocity,
+    // so setting it first would leave the orb hanging in mid-air.
+    this.energyShotGroup.add(shot);
+    const angle = Phaser.Math.Angle.Between(shot.x, shot.y, this.sprite.x, this.sprite.y - 60);
+    shot.setVelocity(Math.cos(angle) * BOSS_ORB_SPEED, Math.sin(angle) * BOSS_ORB_SPEED);
+
+    this.setCharged(false);
+    sound.playEnergy();
+    this.host.burst(shot.x, shot.y, 0x4ade80, 12);
+    this.host.floatScore(player.x, player.y - 48, 'Energi dilempar!', '#bbf7d0');
+
+    // A miss must not cost the phase — the machine hands out a replacement.
+    this.scene.time.delayedCall(ENERGY_SHOT_LIFETIME_MS, () => {
+      if (!shot.active) return;
+      this.host.burst(shot.x, shot.y, 0x4ade80, 8);
+      shot.destroy();
+      if (this.defeated || !this.host.isPlaying()) return;
+      this.host.floatScore(this.machine.x, this.machine.y - 100, 'Meleset — energi diisi ulang', '#fde047');
+      this.spawnEnergyOrb();
+    });
   }
 
   private attachAura(): void {
@@ -580,11 +707,14 @@ export class TrashKingBoss {
     this.aura?.setPosition(player.x, player.y);
 
     if (now >= this.chargeUntil) {
-      this.charged = false;
-      this.aura?.destroy();
-      this.aura = null;
-      this.host.floatScore(player.x, player.y - 40, 'Energi habis!', '#fca5a5');
+      this.setCharged(false);
       sound.playReject();
+      this.host.floatScore(player.x, player.y - 40, 'Energi memudar…', '#fca5a5');
+      // Losing the charge costs time, never progress: the machine reissues it.
+      if (!this.defeated && this.host.isPlaying()) {
+        this.host.floatScore(this.machine.x, this.machine.y - 100, 'Mesin mengisi ulang energi', '#fde047');
+        this.spawnEnergyOrb();
+      }
     }
   }
 
@@ -593,6 +723,7 @@ export class TrashKingBoss {
   handleBossContact(): void {
     if (this.defeated || !this.host.isPlaying()) return;
 
+    // Carrying recycled energy: touching him spends it instead of costing a life.
     if (this.charged) {
       this.damageBoss();
       return;
@@ -605,15 +736,27 @@ export class TrashKingBoss {
   handleProjectileContact(proj: Phaser.Physics.Arcade.Sprite): void {
     if (!proj.active || !this.host.isPlaying()) return;
     this.splatProjectile(proj);
+    if (this.charged) {
+      this.host.floatScore(this.host.player.x, this.host.player.y - 30, 'Energi menahan!', '#bbf7d0');
+      return;
+    }
     if (!this.host.isInvincible()) {
       this.host.damagePlayer(proj.x);
     }
   }
 
+  /** An orb the player threw connects with the king. */
+  handleEnergyShotHit(shot: Phaser.Physics.Arcade.Sprite): void {
+    // Guard the identity as well as the state: destroying the wrong sprite here
+    // would delete the boss itself.
+    if (!shot?.active || !this.energyShotGroup.contains(shot)) return;
+    if (this.defeated || !this.host.isPlaying()) return;
+    shot.destroy();
+    this.damageBoss();
+  }
+
   private damageBoss(): void {
-    this.charged = false;
-    this.aura?.destroy();
-    this.aura = null;
+    this.setCharged(false);
 
     this.hp = Math.max(0, this.hp - 1);
     this.phaseIndex = Math.min(this.phaseIndex + 1, this.def.phases.length - 1);
@@ -652,6 +795,8 @@ export class TrashKingBoss {
       this.host.banner(`FASE ${this.def.phases.length - this.hp + 1} — Butuh ${nextLabel}!`, '#fde047');
       this.clearArenaTrash();
       for (let i = 0; i < 3; i++) this.spawnArenaTrash(i < 2);
+      // A breather between phases so mistakes early on do not doom the fight.
+      this.host.spawnHealthPickup(this.def.machineX + 140, GROUND_Y - 120);
     }
   }
 
@@ -670,8 +815,8 @@ export class TrashKingBoss {
     this.clearArenaTrash();
     this.projectileGroup.getChildren().slice().forEach((p) => p.destroy());
     this.orbGroup.getChildren().slice().forEach((o) => o.destroy());
-    this.aura?.destroy();
-    this.aura = null;
+    this.energyShotGroup.getChildren().slice().forEach((s) => s.destroy());
+    this.setCharged(false);
 
     sound.playBossDefeat();
     this.scene.cameras.main.shake(700, 0.02);
@@ -728,11 +873,11 @@ export class TrashKingBoss {
 
     if (this.charged) {
       const left = Math.max(0, Math.ceil((this.chargeUntil - now) / 1000));
-      this.hud.setTask(`ENERGI SIAP — TABRAK BOSS! (${left}s)`, '#bbf7d0');
+      this.hud.setTask(`ENERGI SIAP — LEMPAR KE BOSS! (${left}s)`, '#bbf7d0');
       return;
     }
     if (this.orbGroup.getLength() > 0) {
-      this.hud.setTask('Ambil bola Energi Daur Ulang di mesin!', '#86efac');
+      this.hud.setTask('Bola Energi Daur Ulang menuju kamu!', '#86efac');
       return;
     }
 
@@ -750,5 +895,10 @@ export class TrashKingBoss {
 
   isDefeated(): boolean {
     return this.defeated;
+  }
+
+  /** True while the player is holding recycled energy ready to throw. */
+  isCharged(): boolean {
+    return this.charged;
   }
 }

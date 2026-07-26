@@ -178,6 +178,8 @@ export interface GameCallbacks {
   onStoryRequest: (levelId: number) => void;
   /** Pushes Eco Power meter / skill state to the HUD. */
   onEcoPowerChange?: (state: EcoPowerState) => void;
+  /** True while the player holds recycled energy ready to hurl at the mini boss. */
+  onThrowReadyChange?: (ready: boolean) => void;
 }
 
 export type GameScreenName =
