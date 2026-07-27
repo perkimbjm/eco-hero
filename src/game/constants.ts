@@ -1,4 +1,4 @@
-import type { TrashType, ThemeKey, BoostType } from './types';
+import type { TrashType, TrashItemKind, ThemeKey, BoostType, PowerUpKind } from './types';
 
 export const TILE = 40;
 export const GAME_WIDTH = 800;
@@ -15,6 +15,16 @@ export const JUMP_BUFFER_MS = 120;
 
 export const PLAYER_WIDTH = 28;
 export const PLAYER_HEIGHT = 38;
+
+/**
+ * Player hitbox, in texture space. The Arcade body multiplies both the size and
+ * the offset by the sprite's scale, so growing the hero with `setScale` keeps
+ * the hitbox proportional — see `setPlayerScale` in GameScene.
+ */
+export const PLAYER_BODY_WIDTH = 22;
+export const PLAYER_BODY_HEIGHT = 38;
+export const PLAYER_BODY_OFFSET_X = 7;
+export const PLAYER_BODY_OFFSET_Y = 14;
 
 export const TRASH_SCORE = 100;
 export const ENEMY_SCORE = 200;
@@ -39,6 +49,153 @@ export const BOOST_DURATIONS: Record<BoostType, number> = {
   shield: 8000,
   jump: 10000,
 };
+
+// ── Hidden eco power-up (blok rahasia ala Super Mario) ───────
+
+/** Blocks are one tile square so they sit cleanly on the level grid. */
+export const MYSTERY_BLOCK_SIZE = TILE;
+/** How far the block kicks upward when head-butted, and for how long. */
+export const MYSTERY_BLOCK_BUMP_PX = 12;
+export const MYSTERY_BLOCK_BUMP_MS = 110;
+/** Time the item takes to rise out of the block before physics take over. */
+export const POWERUP_EMERGE_MS = 520;
+/** Patrol speed once the item lands — slow enough to always be catchable. */
+export const POWERUP_WALK_SPEED = 90;
+/**
+ * How far ahead of itself the item checks for solid ground. Anything wider than
+ * roughly half its body would turn it around while still safely on a ledge.
+ */
+export const POWERUP_LEDGE_PROBE_PX = 8;
+/** Depth below the item's feet used when probing for footing. */
+export const POWERUP_FOOTING_PROBE_PX = 6;
+export const POWERUP_SCALE = 1.4;
+/**
+ * Extra jump HEIGHT the power-up grants. Height scales with the square of the
+ * launch velocity, so the velocity is multiplied by the square root of this —
+ * multiplying the velocity by 1.15 directly would jump ~32% higher.
+ */
+export const POWERUP_JUMP_HEIGHT_MULTIPLIER = 1.15;
+export const POWERUP_JUMP_VELOCITY_MULTIPLIER = Math.sqrt(POWERUP_JUMP_HEIGHT_MULTIPLIER);
+export const POWERUP_DURATION_MS = 10000;
+export const POWERUP_SCORE = 400;
+/** Last stretch of the buff where the aura blinks as a run-out warning. */
+export const POWERUP_WARNING_MS = 2000;
+
+export const POWERUP_INFO: Record<
+  PowerUpKind,
+  {
+    label: string;
+    blurb: string;
+    main: number;
+    cssColor: string;
+    /** `grow` gives the Mario-style buff; `tool` runs its own Eco Tool logic. */
+    power: 'grow' | 'tool';
+  }
+> = {
+  ecoBadge: {
+    label: 'Eco Badge',
+    blurb: 'Lencana daur ulang bercahaya',
+    main: 0x22c55e,
+    cssColor: '#4ade80',
+    power: 'grow',
+  },
+  ecoVest: {
+    label: 'Rompi Eco Hero',
+    blurb: 'Rompi pelindung relawan kebersihan',
+    main: 0x16a34a,
+    cssColor: '#86efac',
+    power: 'grow',
+  },
+  recycleVacuum: {
+    label: 'Recycle Vacuum',
+    blurb: 'Penyedot sampah bertenaga daur ulang',
+    main: 0x0ea5e9,
+    cssColor: '#7dd3fc',
+    power: 'tool',
+  },
+};
+
+// ── Eco Tool: Recycle Vacuum ─────────────────────────────────
+
+export const VACUUM_DURATION_MS = 12000;
+/** Reach of the suction cone. Generous, but never the whole screen. */
+export const VACUUM_RADIUS = 210;
+/** How fast collectibles are dragged in once they are caught. */
+export const VACUUM_PULL_SPEED = 520;
+/** Distance at which a dragged pickup counts as swallowed. */
+export const VACUUM_SWALLOW_DISTANCE = 26;
+/**
+ * How long a small flyer stays dazed. Long enough to walk past safely, short
+ * enough that the level still has to be played rather than switched off.
+ */
+export const VACUUM_STUN_MS = 4000;
+/** Cadence of the whirr loop and the suction particle stream. */
+export const VACUUM_SFX_INTERVAL_MS = 620;
+export const VACUUM_PARTICLE_INTERVAL_MS = 70;
+
+// ── Mountain obstacles ───────────────────────────────────────
+
+/** How long a crumbling rock holds once the player lands on it. */
+export const CRUMBLE_DELAY_MS = 900;
+/** How long the debris takes to fade after the shelf gives way. */
+export const CRUMBLE_FALL_MS = 500;
+/** How long before the shelf reforms, so a mistake is never permanent. */
+export const CRUMBLE_RESPAWN_MS = 3200;
+
+/** Warning window before a bolt lands. Long enough to walk out of the column. */
+export const LIGHTNING_WARN_MS = 950;
+/** How long the bolt itself is dangerous. */
+export const LIGHTNING_STRIKE_MS = 220;
+export const LIGHTNING_KNOCKBACK_Y = -340;
+
+/** Burung Pemakan Sampah. */
+export const TRASH_BIRD_SCORE = 220;
+export const TRASH_BIRD_TELEGRAPH_MS = 520;
+export const TRASH_BIRD_DIVE_SPEED = 320;
+export const TRASH_BIRD_RETURN_SPEED = 210;
+export const TRASH_BIRD_COOLDOWN_MS = 2400;
+
+/** Batu longsor. */
+export const BOULDER_KNOCKBACK_Y = -360;
+export const BOULDER_RADIUS = 26;
+
+/** Fog banks on the summit. */
+export const FOG_FADE_MS = 700;
+
+// ── Mini boss: Raja Polusi ───────────────────────────────────
+
+export const POLLUTION_BOSS_PHASE_SCORE = 700;
+export const POLLUTION_BOSS_DEFEAT_SCORE = 3500;
+/** Drift speed per phase — the cloud gets angrier as it thins out. */
+export const POLLUTION_BOSS_SPEEDS = [34, 46, 74];
+/** Cadence of the pollution balls it lobs, per phase. */
+export const POLLUTION_BALL_INTERVAL_MS = [2600, 2100, 1500];
+export const POLLUTION_BALL_SPEED = 210;
+/** From phase 2 the cloud also calls lightning down into the arena. */
+export const POLLUTION_BOSS_BOLT_INTERVAL_MS = 3400;
+/** And drags the player sideways, so jumps have to be aimed into the wind. */
+export const POLLUTION_BOSS_WIND_FORCE = 165;
+export const POLLUTION_BOSS_WIND_SWITCH_MS = 2600;
+/** How often a fresh Eco Energy Orb appears in the arena. */
+export const ECO_ORB_SPAWN_MS = 2600;
+export const ECO_ORB_MAX = 3;
+/** Speed of the shot the Eco Blaster fires. */
+export const ECO_BLASTER_SPEED = 560;
+/** How long a carried orb stays charged before it fizzles and is reissued. */
+export const ECO_ORB_HOLD_MS = 14000;
+export const POLLUTION_BOSS_STAGGER_MS = 1500;
+
+// ── Forest obstacles ─────────────────────────────────────────
+
+/** Mud drags the hero to 70% speed — noticeable, never a trap. */
+export const MUD_SPEED_MULTIPLIER = 0.7;
+export const MUD_HEIGHT = 20;
+/** Snakes throw the player clear so they never land back on the hazard. */
+export const SNAKE_KNOCKBACK_Y = -380;
+/** Hitbox of the snake's head, the only damaging part. */
+export const SNAKE_HEAD_SIZE = 22;
+/** Half-height of a swaying log's collision slab. */
+export const SWAY_LOG_HEIGHT = 22;
 
 // ── Giant fly (lalat raksasa) ────────────────────────────────
 
@@ -125,7 +282,58 @@ export const TRASH_COLORS: Record<
   organic: { main: '#22c55e', light: '#86efac', dark: '#15803d', label: 'Organik' },
   metal: { main: '#94a3b8', light: '#e2e8f0', dark: '#475569', label: 'Logam' },
   glass: { main: '#14b8a6', light: '#5eead4', dark: '#0f766e', label: 'Kaca' },
+  hazard: { main: '#ef4444', light: '#fecaca', dark: '#991b1b', label: 'Limbah B3' },
 };
+
+// ── Collectible trash objects (emoji-based, no external assets) ──
+
+/**
+ * Every pickup in the game. The emoji IS the artwork: it is rendered into a
+ * canvas texture at boot, so the player recognises the object instantly and the
+ * pickup can announce its own name.
+ */
+export const TRASH_ITEMS: Record<
+  TrashItemKind,
+  { emoji: string; label: string; category: TrashType }
+> = {
+  botolPlastik: { emoji: '🧴', label: 'Botol Plastik', category: 'plastic' },
+  gelasPlastik: { emoji: '🥤', label: 'Gelas Plastik', category: 'plastic' },
+  kantongPlastik: { emoji: '🛍️', label: 'Kantong Plastik', category: 'plastic' },
+  kaleng: { emoji: '🥫', label: 'Kaleng', category: 'metal' },
+  kertas: { emoji: '📄', label: 'Kertas', category: 'paper' },
+  kardus: { emoji: '📦', label: 'Kardus', category: 'paper' },
+  botolKaca: { emoji: '🍾', label: 'Botol Kaca', category: 'glass' },
+  organik: { emoji: '🍌', label: 'Sampah Organik', category: 'organic' },
+  limbahB3: { emoji: '🔋', label: 'Limbah B3', category: 'hazard' },
+};
+
+export const TRASH_ITEM_KINDS = Object.keys(TRASH_ITEMS) as TrashItemKind[];
+
+/** Used for any category a level does not theme itself. */
+export const DEFAULT_TRASH_POOL: Record<TrashType, TrashItemKind[]> = {
+  plastic: ['botolPlastik', 'gelasPlastik', 'kantongPlastik'],
+  paper: ['kertas', 'kardus'],
+  organic: ['organik'],
+  metal: ['kaleng'],
+  glass: ['botolKaca'],
+  hazard: ['limbahB3'],
+};
+
+/** The object that stands for a whole category wherever only the bin matters. */
+export const CATEGORY_ICON_ITEM: Record<TrashType, TrashItemKind> = {
+  plastic: 'botolPlastik',
+  paper: 'kertas',
+  organic: 'organik',
+  metal: 'kaleng',
+  glass: 'botolKaca',
+  hazard: 'limbahB3',
+};
+
+/** Rendered size of a trash emoji, and the texture box it is drawn into. */
+export const TRASH_EMOJI_SIZE = 26;
+export const TRASH_EMOJI_TEXTURE_SIZE = 34;
+/** Hitbox of a trash pickup — a little forgiving relative to the artwork. */
+export const TRASH_BODY_SIZE = 26;
 
 export const SECRET_COLORS: Record<
   'maggot' | 'compost',
@@ -266,6 +474,10 @@ export const THEME_COLORS: Record<
   },
 };
 
+/**
+ * Categories the recycling machine accepts, i.e. the ones the mini boss can ask
+ * for. `hazard` is intentionally excluded: limbah B3 must never be recycled.
+ */
 export const TRASH_TYPES: TrashType[] = ['plastic', 'paper', 'organic', 'metal', 'glass'];
 
 export const BOOST_COLORS: Record<

@@ -12,6 +12,7 @@ import {
 import { XP_REWARDS, COIN_REWARDS } from '../progression';
 import type { GiantFlyDef } from '../types';
 import type { EntityHost } from './EntityHost';
+import type { StunnableFlyer } from './RecycleVacuum';
 import * as sound from '../sound';
 
 type FlyState = 'patrol' | 'telegraph' | 'dive' | 'recover';
@@ -30,6 +31,8 @@ interface FlyData {
   diveX: number;
   diveY: number;
   alive: boolean;
+  /** While > time.now the fly is dazed by the Recycle Vacuum and harmless. */
+  stunnedUntil: number;
 }
 
 interface GiantFlySprite extends Phaser.Physics.Arcade.Sprite {
@@ -88,6 +91,7 @@ export class GiantFlyManager {
       diveX: def.x,
       diveY: def.y,
       alive: true,
+      stunnedUntil: 0,
     };
     sprite.setDepth(25);
     sprite.setSize(BODY_WIDTH, BODY_HEIGHT);
@@ -111,6 +115,12 @@ export class GiantFlyManager {
       if (!fly.flyData?.alive || !fly.body) return;
 
       const d = fly.flyData;
+
+      if (now < d.stunnedUntil) {
+        this.driftDazed(fly, now);
+        return;
+      }
+      if (d.stunnedUntil > 0) this.wakeUp(fly, now);
 
       switch (d.state) {
         case 'patrol':
@@ -214,9 +224,52 @@ export class GiantFlyManager {
 
     if (stomping) {
       this.defeat(target);
+    } else if (this.scene.time.now < target.flyData.stunnedUntil) {
+      // Dazed flies are pure scenery — bumping one costs nothing.
     } else if (!this.host.isInvincible()) {
       this.host.damagePlayer(target.x);
     }
+  }
+
+  /** Every live fly, in the shape the Recycle Vacuum expects. */
+  stunnables(): StunnableFlyer[] {
+    return this.group.getChildren().map((obj) => {
+      const fly = obj as GiantFlySprite;
+      return {
+        sprite: fly,
+        stun: (untilMs: number) => this.stun(fly, untilMs),
+        isStunned: () => this.scene.time.now < fly.flyData.stunnedUntil,
+        isAlive: () => !!fly.flyData?.alive,
+      };
+    });
+  }
+
+  private stun(fly: GiantFlySprite, untilMs: number): void {
+    const d = fly.flyData;
+    if (!d.alive) return;
+    d.stunnedUntil = untilMs;
+    // Drop any committed dive so a stunned fly cannot still land its attack.
+    d.state = 'patrol';
+    d.nextDiveAt = untilMs + GIANT_FLY_COOLDOWN_MS;
+    fly.stop();
+    fly.setTexture('giant_fly1');
+    fly.setTint(0x86efac);
+    fly.setVelocity(0, 0);
+  }
+
+  /** Dazed flies bob gently in place instead of patrolling or diving. */
+  private driftDazed(fly: GiantFlySprite, now: number): void {
+    fly.setVelocity(Math.sin(now / 220) * 26, Math.sin(now / 130) * 16);
+    fly.setRotation(Math.sin(now / 180) * 0.35);
+  }
+
+  private wakeUp(fly: GiantFlySprite, now: number): void {
+    const d = fly.flyData;
+    d.stunnedUntil = 0;
+    d.nextDiveAt = Math.max(d.nextDiveAt, now + GIANT_FLY_COOLDOWN_MS);
+    fly.clearTint();
+    fly.setRotation(0);
+    fly.play(FLAP_ANIM);
   }
 
   private defeat(fly: GiantFlySprite, bounce = true): void {

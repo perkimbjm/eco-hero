@@ -185,6 +185,136 @@ export function playSkillActivate(): void {
   playTone({ freq: 2093, duration: 0.4, type: 'triangle', volume: 0.1, delay: 0.4 });
 }
 
+/** Hollow knock when the hero's head meets a hidden block. */
+export function playBlockBump(): void {
+  playTone({ freq: 240, freqEnd: 120, duration: 0.12, type: 'square', volume: 0.13 });
+  playNoise(0.08, 0.05);
+}
+
+/** The item springing out of an opened block. */
+export function playBlockReveal(): void {
+  const notes = [523, 698, 880];
+  notes.forEach((f, i) => playTone({ freq: f, duration: 0.11, type: 'triangle', volume: 0.11, delay: i * 0.05 }));
+}
+
+/** Grabbing the eco power-up — a rising, unmistakably triumphant fanfare. */
+export function playPowerUp(): void {
+  const rise = [392, 523, 659, 784, 1047, 1319];
+  rise.forEach((f, i) => playTone({ freq: f, duration: 0.12, type: 'square', volume: 0.13, delay: i * 0.055 }));
+  playTone({ freq: 1568, duration: 0.35, type: 'triangle', volume: 0.11, delay: 0.34 });
+}
+
+/** The eco shield breaking, or the power-up simply running out. */
+export function playPowerDown(): void {
+  const fall = [1047, 784, 523, 392];
+  fall.forEach((f, i) => playTone({ freq: f, duration: 0.12, type: 'square', volume: 0.11, delay: i * 0.06 }));
+}
+
+/** Recycle Vacuum switching on — a motor spinning up. */
+export function playVacuumStart(): void {
+  playTone({ freq: 90, freqEnd: 420, duration: 0.5, type: 'sawtooth', volume: 0.12 });
+  playTone({ freq: 180, freqEnd: 840, duration: 0.45, type: 'square', volume: 0.07, delay: 0.05 });
+  playNoise(0.4, 0.07, 0.1);
+}
+
+/** The vacuum's running whirr, re-triggered on a loop while the tool is active. */
+export function playVacuumLoop(): void {
+  playTone({ freq: 400, freqEnd: 330, duration: 0.3, type: 'sawtooth', volume: 0.045 });
+  playNoise(0.28, 0.035);
+}
+
+/** A piece of trash disappearing up the nozzle. */
+export function playVacuumSuck(): void {
+  playTone({ freq: 520, freqEnd: 1180, duration: 0.12, type: 'sine', volume: 0.1 });
+}
+
+/** The vacuum winding down. */
+export function playVacuumStop(): void {
+  playTone({ freq: 400, freqEnd: 70, duration: 0.55, type: 'sawtooth', volume: 0.1 });
+  playNoise(0.35, 0.05);
+}
+
+/** A puff of air that leaves a small flyer harmlessly dazed. */
+export function playFlyDazed(): void {
+  playTone({ freq: 700, freqEnd: 300, duration: 0.22, type: 'triangle', volume: 0.09 });
+  playNoise(0.16, 0.04);
+}
+
+/** Reaching a checkpoint. */
+export function playCheckpoint(): void {
+  const notes = [523, 784, 1047, 1319];
+  notes.forEach((f, i) => playTone({ freq: f, duration: 0.14, type: 'sine', volume: 0.12, delay: i * 0.07 }));
+}
+
+/** Wading into mud — a thick, wet squelch. */
+export function playMud(): void {
+  playNoise(0.24, 0.07);
+  playTone({ freq: 150, freqEnd: 80, duration: 0.24, type: 'sine', volume: 0.09 });
+}
+
+/** Brushing a hanging snake. */
+export function playSnake(): void {
+  playNoise(0.3, 0.07);
+  playTone({ freq: 620, freqEnd: 260, duration: 0.3, type: 'sawtooth', volume: 0.1 });
+}
+
+/** A stone shelf starting to give way underfoot. */
+export function playRockCrack(): void {
+  playNoise(0.16, 0.06);
+  playTone({ freq: 340, freqEnd: 210, duration: 0.14, type: 'square', volume: 0.08 });
+}
+
+/** Rock giving way, or a boulder starting to roll. */
+export function playRockFall(): void {
+  playNoise(0.45, 0.1);
+  playTone({ freq: 130, freqEnd: 50, duration: 0.4, type: 'sawtooth', volume: 0.11 });
+}
+
+/** The crackle that warns a bolt is about to land. */
+export function playThunderWarn(): void {
+  playTone({ freq: 1400, freqEnd: 1900, duration: 0.18, type: 'square', volume: 0.06 });
+  playTone({ freq: 900, freqEnd: 1300, duration: 0.22, type: 'triangle', volume: 0.05, delay: 0.12 });
+}
+
+/** The strike. */
+export function playThunder(): void {
+  playNoise(0.55, 0.16);
+  playTone({ freq: 90, freqEnd: 38, duration: 0.6, type: 'sawtooth', volume: 0.16 });
+  playTone({ freq: 2400, freqEnd: 600, duration: 0.14, type: 'square', volume: 0.09 });
+}
+
+/** A scavenging bird crying out before it drops. */
+export function playBirdCry(): void {
+  playTone({ freq: 1250, freqEnd: 720, duration: 0.16, type: 'sawtooth', volume: 0.09 });
+  playTone({ freq: 980, freqEnd: 1450, duration: 0.14, type: 'square', volume: 0.06, delay: 0.14 });
+}
+
+/** Fog rolling in over the summit. */
+export function playFogRoll(): void {
+  playNoise(0.9, 0.05);
+  playTone({ freq: 190, freqEnd: 120, duration: 0.8, type: 'sine', volume: 0.05 });
+}
+
+/** Firing the Eco Blaster. */
+export function playBlaster(): void {
+  playTone({ freq: 880, freqEnd: 1760, duration: 0.16, type: 'square', volume: 0.13 });
+  playTone({ freq: 440, freqEnd: 880, duration: 0.2, type: 'triangle', volume: 0.09 });
+  playNoise(0.12, 0.05);
+}
+
+/** A pollution ball hissing out of the storm cloud. */
+export function playSmog(): void {
+  playNoise(0.26, 0.05);
+  playTone({ freq: 260, freqEnd: 150, duration: 0.26, type: 'sawtooth', volume: 0.07 });
+}
+
+/** The summit clearing: sun, birds, and clean air. */
+export function playSunrise(): void {
+  const rise = [392, 523, 659, 784, 1047, 1319, 1568];
+  rise.forEach((f, i) => playTone({ freq: f, duration: 0.3, type: 'sine', volume: 0.11, delay: i * 0.13 }));
+  playTone({ freq: 2093, duration: 0.7, type: 'triangle', volume: 0.1, delay: 0.95 });
+}
+
 export function playVictory(): void {
   const melody = [523, 659, 784, 659, 784, 1047, 784, 1047, 1319];
   melody.forEach((f, i) => playTone({ freq: f, duration: 0.15, type: 'square', volume: 0.1, delay: i * 0.1 }));

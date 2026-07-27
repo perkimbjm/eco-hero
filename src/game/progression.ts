@@ -376,10 +376,12 @@ export const LEVEL_CHALLENGES: Record<string, EnvironmentalChallenge> = {
     description: 'Angin hutan membawa debu daun!',
     warning: 'Angin! Tahan apa yang bisa!',
   },
+  // The summit runs its own weather — fog banks, lightning columns and real
+  // rockslides — so the generic flood wave is switched off here.
   mountain: {
-    type: 'flood',
-    description: 'Longsor! Jangan tertimbun!',
-    warning: 'Longsor! Lompat ke atas!',
+    type: 'none',
+    description: '',
+    warning: '',
   },
   city: {
     type: 'smog',

@@ -1,4 +1,13 @@
-import type { LevelDef, AchievementDef, TrashType, SecretType } from './types';
+import type {
+  LevelDef,
+  AchievementDef,
+  TrashType,
+  TrashItemKind,
+  SecretType,
+  PlatformKind,
+  PowerUpKind,
+  MoveAxis,
+} from './types';
 import { GAME_HEIGHT, TILE } from './constants';
 
 const GROUND_Y = GAME_HEIGHT - 80;
@@ -8,12 +17,106 @@ function brick(x: number, row: number, length = 1) {
   return { x, y: ROW(row), width: length * TILE, height: TILE, type: 'brick' as const };
 }
 
-function movingPlatform(x: number, row: number, range: number, speed = 60, length = 2, phase = 0) {
-  return { x, y: ROW(row), width: length * TILE, height: TILE, range, speed, phase };
+function movingPlatform(
+  x: number,
+  row: number,
+  range: number,
+  speed = 60,
+  length = 2,
+  phase = 0,
+  opts: { axis?: MoveAxis; kind?: PlatformKind } = {}
+) {
+  return {
+    x,
+    y: ROW(row),
+    width: length * TILE,
+    height: TILE,
+    range,
+    speed,
+    phase,
+    axis: opts.axis,
+    kind: opts.kind,
+  };
 }
 
-function trash(x: number, y: number, type: TrashType) {
-  return { x, y, type };
+/** Same slab as `brick`, dressed as a piece of forest instead. */
+function forestPlatform(x: number, row: number, length: number, type: PlatformKind) {
+  return { x, y: ROW(row), width: length * TILE, height: TILE, type };
+}
+
+const log = (x: number, row: number, length = 3) => forestPlatform(x, row, length, 'log');
+const boulder = (x: number, row: number, length = 2) => forestPlatform(x, row, length, 'boulder');
+const branch = (x: number, row: number, length = 3) => forestPlatform(x, row, length, 'branch');
+const stump = (x: number, row: number, length = 3) => forestPlatform(x, row, length, 'stump');
+
+/** A log slung from a branch at `row`, hanging `length` px below the anchor. */
+function swayingLog(
+  x: number,
+  row: number,
+  length: number,
+  width: number,
+  swayDeg: number,
+  speed: number,
+  phase: number
+) {
+  return { x, y: ROW(row), length, width, swayDeg, speed, phase };
+}
+
+function hangingSnake(
+  x: number,
+  row: number,
+  length: number,
+  swayDeg: number,
+  speed: number,
+  phase: number
+) {
+  return { x, y: ROW(row), length, swayDeg, speed, phase };
+}
+
+function mud(x: number, width: number) {
+  return { x, width };
+}
+
+/** A narrow stone shelf that gives way shortly after it is stood on. */
+function crumbleRock(x: number, row: number, length = 2) {
+  return { x, y: ROW(row), width: length * TILE };
+}
+
+function lightning(x: number, width: number, intervalMs: number, phase: number) {
+  return { x, width, intervalMs, phase };
+}
+
+function trashBird(x: number, row: number, range = 220) {
+  return { x, y: ROW(row), range };
+}
+
+function rollingBoulder(
+  x: number,
+  dir: -1 | 1,
+  speed: number,
+  distance: number,
+  intervalMs: number,
+  phase: number,
+  y = GROUND_Y - 26
+) {
+  return { x, y, dir, speed, distance, intervalMs, phase };
+}
+
+function waterfall(x: number, row: number, widthTiles: number, heightTiles: number) {
+  return { x, y: ROW(row), width: widthTiles * TILE, height: heightTiles * TILE };
+}
+
+function checkpoint(x: number) {
+  return { x, y: GROUND_Y };
+}
+
+function trash(x: number, y: number, type: TrashType, item?: TrashItemKind) {
+  return { x, y, type, item };
+}
+
+/** Limbah B3 — hazardous waste, always shown as itself rather than pooled. */
+function hazardTrash(x: number, y: number) {
+  return { x, y, type: 'hazard' as const, item: 'limbahB3' as const };
 }
 
 function secret(x: number, y: number, type: SecretType) {
@@ -44,6 +147,19 @@ function boost(x: number, y: number, type: 'magnet' | 'shield' | 'jump') {
   return { x, y, type };
 }
 
+/**
+ * Hidden "?" block, placed on the tile grid like a brick. Row 6 sits 120px above
+ * the ground — out of reach on foot, but a plain jump bonks it from below.
+ */
+function mysteryBlock(
+  x: number,
+  row: number,
+  item: PowerUpKind,
+  disguise?: 'crate' | 'stump' | 'boulder'
+) {
+  return { x, y: ROW(row), item, disguise };
+}
+
 export const LEVELS: LevelDef[] = [
   {
     id: 1,
@@ -61,6 +177,14 @@ export const LEVELS: LevelDef[] = [
       brick(2150, 7, 4),
       brick(2600, 6, 3),
     ],
+    // Taman kota: sampah piknik dan jajanan pengunjung.
+    trashItems: {
+      plastic: ['botolPlastik', 'gelasPlastik', 'kantongPlastik'],
+      paper: ['kertas'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(250, GROUND_Y - 30, 'plastic'),
       trash(460, ROW(8) - 20, 'paper'),
@@ -88,6 +212,11 @@ export const LEVELS: LevelDef[] = [
     ],
     healthPickups: [
       healthPickup(1600, GROUND_Y - 120),
+    ],
+    // Tucked into the empty stretch between the two brick clusters, so it only
+    // turns up if the player jumps where there is seemingly nothing.
+    mysteryBlocks: [
+      mysteryBlock(1360, 6, 'ecoBadge'),
     ],
     goal: { x: 3050, y: GROUND_Y },
     story: {
@@ -122,6 +251,14 @@ export const LEVELS: LevelDef[] = [
       brick(2550, 8, 3),
       brick(2950, 7, 2),
     ],
+    // Pantai: botol dan gelas minuman yang terbawa ombak.
+    trashItems: {
+      plastic: ['botolPlastik', 'gelasPlastik'],
+      paper: ['kertas'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(200, GROUND_Y - 30, 'plastic'),
       trash(400, ROW(9) - 20, 'glass'),
@@ -189,6 +326,14 @@ export const LEVELS: LevelDef[] = [
       brick(2800, 7, 3),
       brick(3200, 6, 2),
     ],
+    // Sungai: kantong kresek dan kardus hanyut dari pemukiman.
+    trashItems: {
+      plastic: ['kantongPlastik', 'botolPlastik'],
+      paper: ['kardus', 'kertas'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(180, GROUND_Y - 30, 'organic'),
       trash(350, ROW(8) - 20, 'plastic'),
@@ -223,6 +368,9 @@ export const LEVELS: LevelDef[] = [
     healthPickups: [
       healthPickup(1400, GROUND_Y - 120),
       healthPickup(2900, ROW(7) - 20),
+    ],
+    mysteryBlocks: [
+      mysteryBlock(2450, 6, 'ecoVest'),
     ],
     goal: { x: 3450, y: GROUND_Y },
     story: {
@@ -263,6 +411,14 @@ export const LEVELS: LevelDef[] = [
       brick(4080, 5, 2),
       brick(4340, 6, 2),
     ],
+    // TPA: campuran segala jenis, termasuk limbah B3 dari elektronik.
+    trashItems: {
+      plastic: ['kantongPlastik', 'gelasPlastik', 'botolPlastik'],
+      paper: ['kardus', 'kertas'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(160, GROUND_Y - 30, 'plastic'),
       trash(350, ROW(8) - 20, 'paper'),
@@ -281,6 +437,9 @@ export const LEVELS: LevelDef[] = [
       trash(3050, ROW(5) - 20, 'glass'),
       trash(3300, ROW(7) - 20, 'organic'),
       trash(3500, GROUND_Y - 30, 'plastic'),
+      // Discarded electronics — the one place B3 waste belongs in the story.
+      hazardTrash(1150, GROUND_Y - 30),
+      hazardTrash(2600, GROUND_Y - 30),
     ],
     secrets: [
       secret(780, ROW(4) - 50, 'maggot'),
@@ -344,91 +503,148 @@ export const LEVELS: LevelDef[] = [
   {
     id: 5,
     name: 'Hutan Hijau',
-    subtitle: 'Jaga keseimbangan alam di hutan!',
+    subtitle: 'Rawa, batang bergoyang, dan ular — jaga keseimbangan hutan!',
     theme: 'forest',
     width: 4200,
     playerStart: { x: 80, y: GROUND_Y - 60 },
+    // Everything the player stands on is a piece of the forest: tunggul, batu
+    // besar, batang tumbang, dan dahan berdaun. Kotak tabraknya tetap persegi
+    // supaya mendarat tidak pernah jadi tebakan.
     platforms: [
-      brick(350, 8, 3),
-      brick(650, 6, 2),
-      brick(900, 8, 3),
-      brick(1200, 6, 2),
-      brick(1500, 9, 2),
-      brick(1700, 7, 3),
-      brick(2000, 5, 2),
-      brick(2250, 7, 3),
-      brick(2550, 5, 2),
-      brick(2800, 8, 3),
-      brick(3100, 6, 2),
-      brick(3350, 8, 3),
-      brick(3600, 6, 2),
-      brick(3850, 7, 3),
+      stump(300, 8, 3),
+      boulder(560, 6, 2),
+      // Jalur kering di atas rawa pertama — alternatif dari menerjang lumpur.
+      // Sengaja di baris 7, bukan 8: baris 8 hanya menyisakan 2px di atas kepala
+      // pemain, dan menyeret kepala sepanjang rawa terasa seperti bug.
+      log(760, 7, 4),
+      branch(1000, 5, 3),
+      stump(1180, 7, 3),
+      log(1400, 5, 3),
+      boulder(1620, 8, 2),
+      // 1700-2080 sengaja kosong: satu-satunya jalan ke atas adalah batang
+      // bergoyang.
+      log(2100, 7, 4),
+      stump(2400, 6, 3),
+      branch(2620, 4, 3),
+      boulder(2820, 7, 2),
+      log(3000, 5, 3),
+      // Juga baris 7 — berdiri di atas rawa ketiga.
+      stump(3260, 7, 3),
+      boulder(3520, 6, 2),
+      log(3720, 8, 4),
+      branch(3960, 5, 2),
     ],
     movingPlatforms: [
-      movingPlatform(1100, 7, 80, 50, 2, 0),
-      movingPlatform(1900, 8, 60, 70, 2, 2),
-      movingPlatform(2850, 6, 90, 55, 2, 4),
+      movingPlatform(1140, 7, 110, 55, 2, 0, { kind: 'log' }),
+      // Lift vertikal menuju sarang lalat.
+      movingPlatform(2500, 6, 90, 50, 2, 2.5, { axis: 'vertical', kind: 'log' }),
+      movingPlatform(3140, 7, 130, 60, 2, 4, { kind: 'log' }),
+      movingPlatform(3620, 5, 100, 48, 2, 1, { axis: 'vertical', kind: 'branch' }),
     ],
+    // Dua batang tumbang tergantung berlawanan fase: menyeberang berarti membaca
+    // ayunannya, bukan menekan lompat lebih cepat.
+    swayingLogs: [
+      swayingLog(1800, 2, 155, 96, 24, 1.0, 0),
+      swayingLog(1960, 2, 155, 96, 24, 1.0, Math.PI),
+    ],
+    // Ular menggantung dan berayun di jalur bawah. Tidak pernah mengejar — ini
+    // teka-teki waktu, bukan pertarungan.
+    hangingSnakes: [
+      hangingSnake(880, 3, 230, 30, 1.25, 0),
+      hangingSnake(2760, 3, 225, 34, 1.05, 1.4),
+      hangingSnake(3320, 3, 235, 28, 1.45, 0.5),
+    ],
+    // Rawa memperlambat 30%. Selalu ada jalur kering di atasnya, jadi lumpur
+    // adalah pilihan risiko-imbalan, bukan hukuman.
+    mudPatches: [
+      mud(760, 260),
+      mud(2160, 200),
+      mud(3120, 240),
+    ],
+    checkpoints: [
+      checkpoint(1120),
+      checkpoint(2280),
+      checkpoint(3480),
+    ],
+    // Tunggul palsu, menempel persis di ujung tunggul asli di 2400-2520.
+    // Tidak berkedip sama sekali — hanya ketahuan kalau pemain iseng melompat
+    // di bawah tunggul yang letaknya sedikit ganjil.
+    mysteryBlocks: [
+      mysteryBlock(2520, 6, 'recycleVacuum', 'stump'),
+    ],
+    // Hutan: sisa bekal pendaki dan bungkus makanan.
+    trashItems: {
+      plastic: ['botolPlastik', 'kantongPlastik'],
+      paper: ['kertas', 'kardus'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(200, GROUND_Y - 30, 'organic'),
-      trash(400, ROW(8) - 20, 'paper'),
-      trash(700, ROW(6) - 20, 'organic'),
-      trash(950, ROW(8) - 20, 'glass'),
-      trash(1250, ROW(6) - 20, 'plastic'),
-      trash(1550, ROW(9) - 20, 'paper'),
-      trash(1750, ROW(7) - 20, 'organic'),
-      trash(2100, ROW(5) - 20, 'metal'),
-      trash(2350, ROW(7) - 20, 'glass'),
-      trash(2600, ROW(5) - 20, 'paper'),
-      trash(2900, ROW(8) - 20, 'plastic'),
-      trash(3200, ROW(6) - 20, 'organic'),
-      trash(3450, ROW(8) - 20, 'metal'),
-      trash(3700, ROW(6) - 20, 'glass'),
-      trash(3950, GROUND_Y - 30, 'organic'),
+      trash(360, ROW(8) - 20, 'paper'),
+      trash(600, ROW(6) - 20, 'organic'),
+      // Jalur kering vs jalur lumpur: dua sampah, dua tingkat risiko.
+      trash(840, ROW(7) - 20, 'glass'),
+      trash(880, GROUND_Y - 30, 'plastic'),
+      trash(1060, ROW(5) - 20, 'paper'),
+      trash(1200, ROW(7) - 20, 'metal'),
+      // Hanya bisa diambil sambil menumpang platform bergerak.
+      trash(1300, ROW(7) - 20, 'organic'),
+      trash(1470, ROW(5) - 20, 'glass'),
+      // Di atas batang bergoyang — terlalu tinggi untuk lompatan dari tanah.
+      trash(1880, 175, 'plastic'),
+      trash(2040, 175, 'paper'),
+      trash(2660, ROW(4) - 20, 'metal'),
+      trash(2860, ROW(7) - 20, 'glass'),
+      trash(3060, ROW(5) - 20, 'organic'),
+      trash(3300, GROUND_Y - 30, 'plastic'),
+      trash(3560, ROW(6) - 20, 'metal'),
+      trash(3800, ROW(8) - 20, 'paper'),
+      trash(4000, ROW(5) - 20, 'glass'),
     ],
     secrets: [
-      secret(480, ROW(6) - 50, 'maggot'),
-      secret(1150, ROW(7) - 50, 'compost'),
-      secret(2150, ROW(8) - 50, 'maggot'),
-      secret(3400, ROW(7) - 50, 'compost'),
+      secret(640, ROW(6) - 50, 'maggot'),
+      secret(1960, 130, 'compost'),
+      secret(2740, ROW(4) - 50, 'maggot'),
+      secret(3620, ROW(5) - 50, 'compost'),
     ],
+    // Enam pejalan, bukan sepuluh. Kesulitan datang dari kombinasi rawa, ular,
+    // dan pijakan bergerak — bukan dari menumpuk musuh.
     enemies: [
-      enemy(450, 100),
-      enemy(800, 120),
-      enemy(1300, 100),
-      enemy(1550, 120),
-      enemy(1950, 100),
-      enemy(2150, 120),
-      enemy(2550, 100),
-      enemy(2950, 120),
-      enemy(3350, 100),
-      enemy(3650, 120),
+      enemy(480, 90),
+      enemy(1250, 110),
+      enemy(1660, 90),
+      enemy(2430, 100),
+      enemy(3040, 110),
+      enemy(3760, 100),
     ],
     flyingEnemies: [
-      flyingEnemy(650, ROW(6) - 30, 40, 25, 60),
-      flyingEnemy(1100, ROW(7) - 30, 40, 30, 70),
-      flyingEnemy(1750, ROW(7) - 30, 50, 25, 65),
-      flyingEnemy(2550, ROW(7) - 30, 60, 30, 75),
-      flyingEnemy(3300, ROW(7) - 30, 50, 25, 70),
+      flyingEnemy(1470, ROW(4) - 30, 45, 24, 60),
+      flyingEnemy(2650, ROW(4) - 30, 50, 25, 65),
+      flyingEnemy(2860, ROW(5) - 30, 60, 30, 70),
+      flyingEnemy(3060, ROW(4) - 30, 55, 28, 68),
     ],
     giantFlies: [
-      giantFly(800, 5, 80, 35, 58),
-      giantFly(1600, 4, 90, 40, 62),
-      giantFly(2400, 6, 80, 30, 60),
-      giantFly(3200, 5, 90, 35, 65),
-      giantFly(3800, 6, 70, 30, 58),
+      giantFly(700, 5, 70, 30, 55),
+      // Menekan pemain tepat saat mereka berdiri di batang bergoyang.
+      giantFly(1900, 3, 80, 32, 58),
+      giantFly(2740, 4, 90, 34, 62),
+      giantFly(2960, 5, 80, 30, 60),
     ],
     healthPickups: [
-      healthPickup(1000, GROUND_Y - 120),
-      healthPickup(2200, ROW(8) - 20),
-      healthPickup(3550, GROUND_Y - 120),
+      healthPickup(1140, GROUND_Y - 120),
+      healthPickup(2400, ROW(6) - 20),
+      healthPickup(3480, GROUND_Y - 120),
     ],
     boosts: [
-      boost(500, ROW(8) - 30, 'magnet'),
-      boost(1850, ROW(6) - 30, 'shield'),
-      boost(3100, ROW(6) - 30, 'magnet'),
+      boost(1020, ROW(5) - 30, 'jump'),
+      // Hadiah bagi yang berani menerjang lumpur.
+      boost(2200, GROUND_Y - 40, 'shield'),
+      boost(3400, ROW(8) - 30, 'magnet'),
     ],
     goal: { x: 4050, y: GROUND_Y },
+
     story: {
       intro:
         'Pohon Kehidupan: "Hutan ini dulu sarana kehidupan ribuan spesies. Kini pohon ditebang dan ikan mati. Kembalikan hutan!"',
@@ -440,114 +656,203 @@ export const LEVELS: LevelDef[] = [
       text: 'Hutan tropis menyimpan 80% spesies bumi! Penebangan pohon merusak habitat dan mempercepat perubahan iklim.',
       tip: 'Kurangi kertas, beli produk bukan dari bahan bakar fosil, dan dukung reboisasi.',
     },
-    timeTarget: 90000,
+    // Naik dari 90s: rawa memperlambat langkah dan batang bergoyang harus
+    // ditunggu, jadi target waktu lama menghukum bermain hati-hati.
+    timeTarget: 115000,
   },
   {
     id: 6,
     name: 'Puncak Mendung',
-    subtitle: 'Kalahkan debu dan awan asap di puncak!',
+    subtitle: 'Kabut, petir, dan longsor — lalu hadapi Raja Polusi!',
     theme: 'mountain',
-    width: 4600,
+    width: 4900,
     playerStart: { x: 80, y: GROUND_Y - 60 },
+    // Tebing batu: pijakan sempit di jalur berisiko, lebar di jalur aman.
     platforms: [
-      brick(300, 8, 2),
-      brick(500, 6, 2),
-      brick(750, 8, 2),
-      brick(1000, 5, 2),
-      brick(1250, 7, 3),
-      brick(1550, 6, 2),
-      brick(1800, 4, 2),
-      brick(2050, 6, 2),
-      brick(2300, 8, 3),
-      brick(2600, 5, 2),
-      brick(2850, 7, 3),
-      brick(3200, 6, 2),
-      brick(3450, 8, 3),
-      brick(3750, 5, 2),
-      brick(4000, 7, 3),
-      brick(4250, 6, 2),
+      boulder(280, 8, 2),
+      boulder(520, 6, 2),
+      // ── Percabangan 1 (x 700-1500) ──────────────────────────
+      // Jalur AMAN: dua batu lebar di baris 8.
+      boulder(760, 8, 3),
+      boulder(1120, 8, 3),
+      // Jalur SULIT: rak sempit tinggi di baris 4-5, di jalur petir.
+      boulder(820, 4, 1),
+      boulder(1000, 3, 1),
+      boulder(1180, 4, 1),
+      // ── Air terjun (x 1500-1800) ────────────────────────────
+      boulder(1520, 7, 2),
+      boulder(1760, 6, 2),
+      // ── Percabangan 2 (x 2000-2900) ─────────────────────────
+      boulder(2000, 8, 3),
+      boulder(2380, 7, 2),
+      boulder(2700, 8, 3),
+      // Jalur SULIT: punggungan tinggi lewat sarang burung.
+      boulder(2100, 4, 1),
+      boulder(2300, 3, 1),
+      boulder(2520, 4, 1),
+      // ── Lereng longsor (x 3000-3700) ────────────────────────
+      boulder(3020, 6, 2),
+      boulder(3320, 5, 2),
+      boulder(3600, 7, 2),
+      // ── Menuju arena (x 3800-4200) ──────────────────────────
+      boulder(3860, 6, 2),
+      boulder(4120, 8, 3),
+      // Arena Raja Polusi: dua tempat berlindung dari bola polusi.
+      boulder(4420, 5, 2),
+      boulder(4700, 6, 2),
     ],
+    // Naik-turun: satu di air terjun, satu di lereng longsor, satu di arena.
     movingPlatforms: [
-      movingPlatform(800, 9, 70, 65, 2, 1),
-      movingPlatform(1450, 9, 60, 80, 2, 3),
-      movingPlatform(2100, 9, 80, 70, 2, 5),
-      movingPlatform(2750, 9, 60, 75, 2, 0),
-      movingPlatform(3550, 9, 90, 85, 2, 2),
-      movingPlatform(4100, 9, 70, 60, 2, 4),
+      movingPlatform(1620, 6, 90, 46, 2, 0, { axis: 'vertical', kind: 'boulder' }),
+      movingPlatform(2180, 7, 120, 58, 2, 2, { kind: 'boulder' }),
+      movingPlatform(3180, 5, 100, 50, 2, 1.4, { axis: 'vertical', kind: 'boulder' }),
+      movingPlatform(4260, 6, 110, 62, 2, 3, { kind: 'boulder' }),
     ],
+    // Rak yang runtuh: semuanya di jalur berisiko, tidak pernah di jalur aman.
+    crumblingRocks: [
+      crumbleRock(900, 4, 2),
+      crumbleRock(1080, 3, 2),
+      crumbleRock(2200, 4, 2),
+      crumbleRock(2400, 3, 2),
+      crumbleRock(3420, 5, 2),
+      crumbleRock(3740, 6, 2),
+    ],
+    // Kolom petir hanya di jalur sulit dan di lereng longsor.
+    lightningZones: [
+      lightning(940, 90, 4200, 0),
+      lightning(1160, 90, 4600, 1500),
+      lightning(2320, 90, 4400, 800),
+      lightning(3480, 100, 3800, 2200),
+    ],
+    // Longsoran menggelinding menuruni lereng ke arah pemain.
+    rollingBoulders: [
+      rollingBoulder(3760, -1, 250, 760, 5200, 0),
+      rollingBoulder(3760, -1, 300, 780, 6100, 2600),
+      rollingBoulder(2960, -1, 235, 620, 5600, 1400),
+    ],
+    // Sampah bisa disembunyikan di balik tirai airnya.
+    waterfalls: [
+      waterfall(1600, 0, 3, 8),
+      waterfall(3560, 0, 2, 7),
+    ],
+    // Jangkauan harus melebihi jarak sarang ke tanah (~300px di baris 2),
+    // kalau tidak burung tidak pernah menyambar pemain yang lewat di bawah.
+    trashBirds: [
+      trashBird(1040, 2, 340),
+      trashBird(2340, 2, 340),
+      trashBird(3320, 3, 320),
+      trashBird(4080, 3, 320),
+    ],
+    // Kabut menutup sebagian layar tiap ~11 detik selama 4 detik.
+    fog: { intervalMs: 11000, durationMs: 4000, coverage: 0.46 },
+    checkpoints: [
+      checkpoint(1500),
+      checkpoint(2900),
+      checkpoint(3900),
+    ],
+    // Batu palsu di tepi arena — tersamar di antara bebatuan asli.
+    mysteryBlocks: [
+      mysteryBlock(4180, 5, 'ecoVest', 'boulder'),
+    ],
+    // Pegunungan: bekal logistik pendakian.
+    trashItems: {
+      plastic: ['botolPlastik', 'gelasPlastik'],
+      paper: ['kertas', 'kardus'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
-      trash(200, GROUND_Y - 30, 'metal'),
-      trash(400, ROW(8) - 20, 'paper'),
-      trash(650, ROW(6) - 20, 'glass'),
-      trash(850, ROW(8) - 20, 'plastic'),
-      trash(1100, ROW(5) - 20, 'organic'),
-      trash(1350, ROW(7) - 20, 'metal'),
-      trash(1600, ROW(6) - 20, 'paper'),
-      trash(1850, ROW(4) - 20, 'glass'),
-      trash(2100, ROW(6) - 20, 'plastic'),
-      trash(2400, ROW(8) - 20, 'organic'),
-      trash(2650, ROW(5) - 20, 'metal'),
-      trash(2950, ROW(7) - 20, 'glass'),
-      trash(3300, ROW(6) - 20, 'paper'),
-      trash(3550, ROW(8) - 20, 'plastic'),
-      trash(3800, ROW(5) - 20, 'organic'),
-      trash(4050, ROW(7) - 20, 'metal'),
-      trash(4300, ROW(6) - 20, 'glass'),
+      trash(200, GROUND_Y - 30, 'plastic'),
+      trash(320, ROW(8) - 20, 'paper'),
+      trash(560, ROW(6) - 20, 'metal'),
+      // Jalur aman: dua sampah biasa.
+      trash(800, ROW(8) - 20, 'organic'),
+      trash(1160, ROW(8) - 20, 'plastic'),
+      // Jalur sulit: empat sampah di rak sempit dalam kolom petir.
+      trash(840, ROW(4) - 20, 'glass'),
+      trash(940, ROW(4) - 20, 'metal'),
+      trash(1020, ROW(3) - 20, 'paper'),
+      trash(1200, ROW(4) - 20, 'glass'),
+      // Di balik tirai air terjun.
+      trash(1660, ROW(3) - 20, 'plastic'),
+      trash(1690, ROW(5) - 20, 'metal'),
+      trash(1800, ROW(6) - 20, 'organic'),
+      trash(2050, ROW(8) - 20, 'paper'),
+      // Punggungan sarang burung.
+      trash(2130, ROW(4) - 20, 'glass'),
+      trash(2330, ROW(3) - 20, 'metal'),
+      trash(2560, ROW(4) - 20, 'plastic'),
+      trash(2740, ROW(8) - 20, 'organic'),
+      // Jalur longsoran — diambil sambil menghindari batu menggelinding.
+      trash(3060, ROW(6) - 20, 'paper'),
+      trash(3200, GROUND_Y - 30, 'metal'),
+      trash(3360, ROW(5) - 20, 'glass'),
+      trash(3620, ROW(7) - 20, 'plastic'),
+      trash(3900, ROW(6) - 20, 'organic'),
+      trash(4160, ROW(8) - 20, 'paper'),
     ],
     secrets: [
-      secret(600, ROW(5) - 50, 'maggot'),
-      secret(1550, ROW(6) - 50, 'compost'),
-      secret(2350, ROW(8) - 50, 'maggot'),
-      secret(3450, ROW(8) - 50, 'compost'),
-      secret(4050, ROW(7) - 50, 'maggot'),
+      // Hadiah jalur sulit.
+      secret(1020, ROW(3) - 50, 'maggot'),
+      // Benar-benar di balik air terjun.
+      secret(1680, ROW(2) - 20, 'compost'),
+      secret(2330, ROW(3) - 50, 'maggot'),
+      secret(3480, ROW(5) - 50, 'compost'),
     ],
+    // Delapan pejalan di 4900px — lebih longgar dari level 5 karena tekanan
+    // datang dari petir, longsor, kabut, dan rak yang runtuh.
     enemies: [
-      enemy(550, 100),
-      enemy(1050, 120),
-      enemy(1350, 100),
-      enemy(1750, 120),
-      enemy(2150, 100),
-      enemy(2450, 120),
-      enemy(2700, 100),
-      enemy(3100, 120),
-      enemy(3350, 100),
-      enemy(3650, 120),
-      enemy(3950, 100),
-      enemy(4200, 120),
+      enemy(420, 100),
+      enemy(900, 110),
+      enemy(1400, 100),
+      enemy(1900, 110),
+      enemy(2600, 100),
+      enemy(3120, 110),
+      enemy(3700, 100),
+      enemy(4020, 110),
     ],
     flyingEnemies: [
-      flyingEnemy(700, ROW(7) - 30, 50, 35, 70),
-      flyingEnemy(1450, ROW(7) - 30, 60, 30, 75),
-      flyingEnemy(2250, ROW(7) - 30, 50, 40, 65),
-      flyingEnemy(3050, ROW(7) - 30, 60, 30, 70),
-      flyingEnemy(3800, ROW(7) - 30, 50, 35, 75),
-      flyingEnemy(4150, ROW(7) - 30, 60, 30, 80),
+      flyingEnemy(1300, ROW(6) - 30, 55, 30, 70),
+      flyingEnemy(2450, ROW(6) - 30, 60, 32, 72),
+      flyingEnemy(3300, ROW(6) - 30, 55, 30, 68),
     ],
+    pollutionBoss: {
+      name: 'Raja Polusi',
+      x: 4560,
+      y: 150,
+      arenaStart: 4300,
+      arenaEnd: 4860,
+      hp: 3,
+    },
     healthPickups: [
-      healthPickup(900, ROW(5) - 20),
-      healthPickup(1950, GROUND_Y - 120),
-      healthPickup(3150, ROW(6) - 20),
-      healthPickup(4300, GROUND_Y - 120),
+      healthPickup(1500, GROUND_Y - 120),
+      healthPickup(2900, GROUND_Y - 120),
+      healthPickup(3900, GROUND_Y - 120),
+      healthPickup(4340, ROW(5) - 20),
     ],
     boosts: [
-      boost(450, ROW(6) - 30, 'jump'),
-      boost(1650, ROW(6) - 30, 'shield'),
-      boost(2650, ROW(5) - 30, 'magnet'),
-      boost(3650, ROW(5) - 30, 'jump'),
+      // Bonus jalur sulit.
+      boost(1020, ROW(3) - 60, 'shield'),
+      boost(2330, ROW(3) - 60, 'jump'),
+      boost(3480, ROW(5) - 60, 'magnet'),
     ],
-    goal: { x: 4450, y: GROUND_Y },
+    goal: { x: 4860, y: GROUND_Y },
+
     story: {
       intro:
-        'Pohon Kehidupan: "Puncak gunung adalah sumber mata air. Jika kotor, kota bawah pun terancam. Pertahankan ketinggianmu!"',
+        'Pohon Kehidupan: "Puncak gunung adalah sumber mata air, tetapi kini diselimuti kabut dan petir. Di atas sana bertahta Raja Polusi — awan hitam raksasa. Jangan tabrak dia; kumpulkan Eco Energy Orb dan tembak intinya dengan Eco Blaster!"',
       outro:
-        'Puncak bersinar bersih! Air mata mengalir jernih, salju memutih kembali, dan awan putih melayang tenang.',
+        'Awan hitam pecah menjadi awan putih! Matahari muncul, kabut hilang, burung-burung kembali terbang, dan bunga bermekaran di sepanjang punggungan. Puncak kembali menjadi pemandangan pegunungan yang bersih.',
     },
     fact: {
       title: 'Mata Air dan Ekosistem',
       text: 'Hutan pegunungan menyimpan air bersih untuk kota bawah. Sampah di puncak bisa menyebar ke hilir dan bahayakan kesehatan jutaan orang.',
       tip: 'Jangan buang limbah, jaga bukit, dan tanam pohon di lahan kritis pegunungan.',
     },
-    timeTarget: 90000,
+    // Kabut, jeda petir, dan menunggu rak runtuh pulih membuat level ini lebih
+    // lambat dari level 5 meski panjangnya mirip.
+    timeTarget: 150000,
   },
   {
     id: 7,
@@ -583,6 +888,14 @@ export const LEVELS: LevelDef[] = [
       movingPlatform(3550, 7, 80, 60, 2, 5),
       movingPlatform(4100, 7, 60, 70, 2, 0),
     ],
+    // Kota: kardus paket dan gelas minuman kemasan.
+    trashItems: {
+      plastic: ['gelasPlastik', 'kantongPlastik', 'botolPlastik'],
+      paper: ['kardus', 'kertas'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(200, GROUND_Y - 30, 'plastic'),
       trash(450, ROW(8) - 20, 'paper'),
@@ -601,6 +914,8 @@ export const LEVELS: LevelDef[] = [
       trash(4050, ROW(6) - 20, 'plastic'),
       trash(4300, ROW(8) - 20, 'paper'),
       trash(4550, GROUND_Y - 30, 'organic'),
+      // Dead phone batteries dumped on a city street.
+      hazardTrash(1900, GROUND_Y - 30),
     ],
     secrets: [
       secret(550, ROW(6) - 50, 'maggot'),
@@ -697,6 +1012,14 @@ export const LEVELS: LevelDef[] = [
       movingPlatform(4250, 7, 90, 70, 2, 0),
       movingPlatform(4800, 7, 80, 55, 2, 2),
     ],
+    // Samudra: plastik sekali pakai yang paling mematikan bagi biota laut.
+    trashItems: {
+      plastic: ['kantongPlastik', 'botolPlastik', 'gelasPlastik'],
+      paper: ['kardus'],
+      organic: ['organik'],
+      metal: ['kaleng'],
+      glass: ['botolKaca'],
+    },
     trash: [
       trash(200, GROUND_Y - 30, 'glass'),
       trash(450, ROW(8) - 20, 'plastic'),

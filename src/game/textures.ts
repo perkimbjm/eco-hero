@@ -1,5 +1,11 @@
 import Phaser from 'phaser';
-import { TRASH_COLORS } from './constants';
+import {
+  CATEGORY_ICON_ITEM,
+  TRASH_EMOJI_SIZE,
+  TRASH_EMOJI_TEXTURE_SIZE,
+  TRASH_ITEMS,
+  TRASH_ITEM_KINDS,
+} from './constants';
 import type { TrashType, ThemeKey } from './types';
 import { SKINS, type SkinDef } from './progression';
 
@@ -21,6 +27,12 @@ export function generateAllTextures(scene: Phaser.Scene, skinId: string = 'defau
   generateTreeTextures(scene);
   generateBoostTextures(scene);
   generateHeartTexture(scene);
+  generateMysteryBlockTextures(scene);
+  generatePowerUpTextures(scene);
+  generateDisguisedBlockTextures(scene);
+  generateSnakeTextures(scene);
+  generateEcoToolTextures(scene);
+  generateMountainTextures(scene);
 }
 
 function generateWhitePixel(scene: Phaser.Scene): void {
@@ -466,68 +478,54 @@ function generateBossTextures(scene: Phaser.Scene): void {
 
 // ── Trash ───────────────────────────────────────────────────
 
+/**
+ * Emoji, rendered into a canvas texture. Colour emoji come from the platform
+ * font, so a recognisable pictogram costs no image asset and no icon library.
+ */
+function makeEmojiTexture(scene: Phaser.Scene, key: string, emoji: string, fontSize: number, boxSize: number): void {
+  // Textures are regenerated when the equipped skin changes, and createCanvas
+  // refuses to overwrite an existing key.
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+
+  const canvas = scene.textures.createCanvas(key, boxSize, boxSize);
+  const ctx = canvas?.getContext();
+  if (!canvas || !ctx) return;
+
+  ctx.clearRect(0, 0, boxSize, boxSize);
+  ctx.font = `${fontSize}px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // A soft drop shadow keeps the pictogram readable over busy backgrounds.
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
+  ctx.fillText(emoji, boxSize / 2, boxSize / 2 + 1);
+
+  canvas.refresh();
+}
+
 function generateTrashTextures(scene: Phaser.Scene): void {
-  const types: TrashType[] = ['plastic', 'paper', 'organic', 'metal', 'glass'];
+  // One texture per collectible object...
+  for (const kind of TRASH_ITEM_KINDS) {
+    makeEmojiTexture(
+      scene,
+      `trashitem_${kind}`,
+      TRASH_ITEMS[kind].emoji,
+      TRASH_EMOJI_SIZE,
+      TRASH_EMOJI_TEXTURE_SIZE
+    );
+  }
 
-  for (const type of types) {
-    const colors = TRASH_COLORS[type];
-    const main = parseInt(colors.main.slice(1), 16);
-    const light = parseInt(colors.light.slice(1), 16);
-    const dark = parseInt(colors.dark.slice(1), 16);
-
-    makeTexture(scene, `trash_${type}`, 28, 28, (g) => {
-      g.clear();
-      const cx = 14;
-      const cy = 14;
-
-      if (type === 'plastic') {
-        g.fillStyle(main, 1);
-        g.fillRect(cx - 8, cy - 12, 16, 22);
-        g.fillStyle(light, 1);
-        g.fillRect(cx - 8, cy - 12, 16, 4);
-        g.fillStyle(dark, 1);
-        g.fillRect(cx - 6, cy - 4, 12, 2);
-        g.fillRect(cx - 6, cy + 2, 12, 2);
-      } else if (type === 'paper') {
-        g.fillStyle(main, 1);
-        g.fillRect(cx - 9, cy - 7, 18, 14);
-        g.fillStyle(dark, 1);
-        g.fillRect(cx - 9, cy - 7, 18, 3);
-        g.lineStyle(1, dark, 1);
-        g.beginPath();
-        g.moveTo(cx - 5, cy); g.lineTo(cx + 5, cy);
-        g.moveTo(cx - 5, cy + 3); g.lineTo(cx + 5, cy + 3);
-        g.strokePath();
-      } else if (type === 'organic') {
-        g.fillStyle(main, 1);
-        g.fillCircle(cx, cy, 9);
-        g.fillStyle(dark, 1);
-        g.fillCircle(cx - 3, cy - 2, 3);
-        g.fillCircle(cx + 4, cy + 1, 2);
-        g.fillStyle(light, 1);
-        g.fillRect(cx - 2, cy - 11, 4, 5);
-      } else if (type === 'metal') {
-        g.fillStyle(light, 1);
-        g.fillCircle(cx, cy - 2, 8);
-        g.fillStyle(dark, 1);
-        g.fillRect(cx - 8, cy - 3, 16, 12);
-        g.fillStyle(main, 1);
-        g.fillRect(cx - 8, cy + 5, 16, 4);
-      } else if (type === 'glass') {
-        g.fillStyle(main, 1);
-        g.beginPath();
-        g.moveTo(cx - 5, cy - 11);
-        g.lineTo(cx + 5, cy - 11);
-        g.lineTo(cx + 7, cy - 5);
-        g.lineTo(cx + 8, cy + 9);
-        g.lineTo(cx - 8, cy + 9);
-        g.lineTo(cx - 7, cy - 5);
-        g.closePath();
-        g.fillPath();
-        g.fillStyle(0xffffff, 0.4);
-        g.fillRect(cx - 5, cy - 11, 4, 18);
-      }
-    });
+  // ...plus one per sorting category, for everywhere only the bin matters
+  // (the mini boss's carried icon, machine prompts, arena litter).
+  for (const category of Object.keys(CATEGORY_ICON_ITEM) as TrashType[]) {
+    makeEmojiTexture(
+      scene,
+      `trash_${category}`,
+      TRASH_ITEMS[CATEGORY_ICON_ITEM[category]].emoji,
+      TRASH_EMOJI_SIZE,
+      TRASH_EMOJI_TEXTURE_SIZE
+    );
   }
 }
 
@@ -780,5 +778,376 @@ function generateHeartTexture(scene: Phaser.Scene): void {
     g.fillStyle(0xfca5a5, 1);
     g.fillCircle(7, 6, 3);
     g.fillCircle(16, 6, 2);
+  });
+}
+
+// ── Hidden block + eco power-ups ─────────────────────────────
+
+/**
+ * The "?" crate and its spent counterpart. Sized to MYSTERY_BLOCK_SIZE so the
+ * static body can be built straight from the texture without scaling.
+ */
+function generateMysteryBlockTextures(scene: Phaser.Scene): void {
+  const S = 40;
+
+  makeTexture(scene, 'mystery_block', S, S, (g) => {
+    g.clear();
+    // Crate body — recycled-cardboard brown with a green eco frame.
+    g.fillStyle(0x14532d, 1);
+    g.fillRect(0, 0, S, S);
+    g.fillStyle(0xca8a04, 1);
+    g.fillRect(3, 3, S - 6, S - 6);
+    g.fillStyle(0xfacc15, 1);
+    g.fillRect(3, 3, S - 6, S - 10);
+    g.fillStyle(0xfef08a, 1);
+    g.fillRect(3, 3, S - 6, 4);
+
+    // Corner rivets
+    g.fillStyle(0x14532d, 1);
+    for (const [rx, ry] of [[6, 6], [S - 10, 6], [6, S - 10], [S - 10, S - 10]]) {
+      g.fillRect(rx, ry, 4, 4);
+    }
+
+    // Question mark
+    g.fillStyle(0x14532d, 1);
+    g.fillRect(13, 9, 14, 5);
+    g.fillRect(23, 9, 5, 11);
+    g.fillRect(16, 17, 12, 5);
+    g.fillRect(17, 20, 5, 8);
+    g.fillRect(17, 31, 5, 5);
+    g.fillStyle(0x22c55e, 1);
+    g.fillRect(14, 10, 12, 3);
+    g.fillRect(18, 32, 3, 3);
+  });
+
+  makeTexture(scene, 'mystery_block_used', S, S, (g) => {
+    g.clear();
+    g.fillStyle(0x1c1917, 1);
+    g.fillRect(0, 0, S, S);
+    g.fillStyle(0x78716c, 1);
+    g.fillRect(3, 3, S - 6, S - 6);
+    g.fillStyle(0x8f8a85, 1);
+    g.fillRect(3, 3, S - 6, S - 12);
+    // Sunken centre so a spent block reads as empty at a glance.
+    g.fillStyle(0x57534e, 1);
+    g.fillRect(9, 9, S - 18, S - 18);
+    g.fillStyle(0x44403c, 1);
+    g.fillRect(9, 9, S - 18, 3);
+  });
+}
+
+/** Eco Badge (glowing recycle emblem) and Rompi Eco Hero (hi-vis eco vest). */
+function generatePowerUpTextures(scene: Phaser.Scene): void {
+  makeTexture(scene, 'powerup_ecoBadge', 28, 28, (g) => {
+    g.clear();
+    // Glow halo
+    g.fillStyle(0x4ade80, 0.28);
+    g.fillCircle(14, 14, 13.5);
+    g.fillStyle(0x86efac, 0.45);
+    g.fillCircle(14, 14, 11.5);
+    // Badge disc
+    g.fillStyle(0x15803d, 1);
+    g.fillCircle(14, 14, 10);
+    g.fillStyle(0x22c55e, 1);
+    g.fillCircle(14, 13, 8.5);
+    // Recycle triangle (outer ring minus inner cut-out)
+    g.fillStyle(0xecfdf5, 1);
+    g.fillTriangle(14, 5, 22.5, 19.5, 5.5, 19.5);
+    g.fillStyle(0x22c55e, 1);
+    g.fillTriangle(14, 10.5, 18.5, 18, 9.5, 18);
+    // Arrow heads that make the loop read as "recycle"
+    g.fillStyle(0xecfdf5, 1);
+    g.fillTriangle(14, 2.5, 10.5, 7, 17.5, 7);
+    g.fillTriangle(4, 21.5, 8.5, 17.5, 9, 23.5);
+    g.fillTriangle(24, 21.5, 19.5, 17.5, 19, 23.5);
+    // Specular highlight
+    g.fillStyle(0xffffff, 0.7);
+    g.fillCircle(10, 8, 1.8);
+  });
+
+  makeTexture(scene, 'powerup_ecoVest', 28, 28, (g) => {
+    g.clear();
+    // Glow halo
+    g.fillStyle(0x4ade80, 0.25);
+    g.fillCircle(14, 14, 13.5);
+    // Vest body
+    g.fillStyle(0x14532d, 1);
+    g.fillRect(5, 6, 18, 18);
+    g.fillStyle(0x16a34a, 1);
+    g.fillRect(6, 7, 16, 16);
+    // Shoulders
+    g.fillStyle(0x15803d, 1);
+    g.fillRect(4, 4, 7, 5);
+    g.fillRect(17, 4, 7, 5);
+    // Front opening
+    g.fillStyle(0x052e16, 1);
+    g.fillRect(13, 6, 2, 18);
+    // Reflective stripes
+    g.fillStyle(0xbbf7d0, 1);
+    g.fillRect(6, 12, 16, 3);
+    g.fillStyle(0xecfdf5, 0.85);
+    g.fillRect(6, 18, 16, 2);
+    // Leaf emblem on the chest
+    g.fillStyle(0x86efac, 1);
+    g.fillEllipse(9, 9, 7, 4);
+    g.fillStyle(0x14532d, 1);
+    g.fillRect(6, 9, 6, 1);
+  });
+}
+
+// ── Forest obstacles + Eco Tool ──────────────────────────────
+
+/**
+ * A mystery block dressed as a mossy stump or a boulder, so it reads as scenery
+ * until the player thinks to jump underneath it. Same 40x40 body as the crate.
+ */
+function generateDisguisedBlockTextures(scene: Phaser.Scene): void {
+  const S = 40;
+
+  makeTexture(scene, 'mystery_stump', S, S, (g) => {
+    g.clear();
+    // Trunk
+    g.fillStyle(0x422006, 1);
+    g.fillRect(4, 6, S - 8, S - 6);
+    g.fillStyle(0x713f12, 1);
+    g.fillRect(6, 8, S - 12, S - 8);
+    // Bark grooves
+    g.fillStyle(0x422006, 1);
+    g.fillRect(11, 12, 2, S - 14);
+    g.fillRect(20, 10, 2, S - 12);
+    g.fillRect(28, 14, 2, S - 16);
+    // Cut top with growth rings
+    g.fillStyle(0xa16207, 1);
+    g.fillEllipse(S / 2, 8, S - 8, 11);
+    g.fillStyle(0xca8a04, 1);
+    g.fillEllipse(S / 2, 8, S - 16, 7);
+    g.fillStyle(0xa16207, 1);
+    g.fillEllipse(S / 2, 8, 8, 3);
+    // Moss, the only hint that this stump is special
+    g.fillStyle(0x4d7c0f, 1);
+    g.fillCircle(9, 12, 4);
+    g.fillCircle(31, 14, 3);
+    g.fillStyle(0x65a30d, 1);
+    g.fillCircle(8, 11, 2);
+  });
+
+  makeTexture(scene, 'mystery_stump_used', S, S, (g) => {
+    g.clear();
+    g.fillStyle(0x292524, 1);
+    g.fillRect(4, 6, S - 8, S - 6);
+    g.fillStyle(0x44403c, 1);
+    g.fillRect(6, 8, S - 12, S - 8);
+    // Hollowed-out top
+    g.fillStyle(0x1c1917, 1);
+    g.fillEllipse(S / 2, 9, S - 10, 12);
+    g.fillStyle(0x57534e, 1);
+    g.fillEllipse(S / 2, 7, S - 10, 8);
+    g.fillStyle(0x1c1917, 1);
+    g.fillEllipse(S / 2, 8, S - 18, 5);
+  });
+
+  makeTexture(scene, 'mystery_boulder', S, S, (g) => {
+    g.clear();
+    g.fillStyle(0x292524, 1);
+    g.fillCircle(S / 2, S / 2 + 2, 19);
+    g.fillStyle(0x57534e, 1);
+    g.fillCircle(S / 2, S / 2, 18);
+    g.fillStyle(0x78716c, 1);
+    g.fillCircle(S / 2 - 2, S / 2 - 3, 14);
+    g.fillStyle(0xa8a29e, 1);
+    g.fillCircle(S / 2 - 6, S / 2 - 7, 5);
+    // Lichen speckles
+    g.fillStyle(0x4d7c0f, 1);
+    g.fillCircle(28, 26, 3);
+    g.fillCircle(13, 29, 2);
+  });
+
+  makeTexture(scene, 'mystery_boulder_used', S, S, (g) => {
+    g.clear();
+    g.fillStyle(0x1c1917, 1);
+    g.fillCircle(S / 2, S / 2 + 2, 19);
+    g.fillStyle(0x44403c, 1);
+    g.fillCircle(S / 2, S / 2, 18);
+    // Split open down the middle
+    g.fillStyle(0x1c1917, 1);
+    g.fillRect(S / 2 - 3, S / 2 - 16, 6, 32);
+    g.fillStyle(0x57534e, 1);
+    g.fillCircle(S / 2 - 8, S / 2 - 5, 7);
+    g.fillCircle(S / 2 + 8, S / 2 - 5, 7);
+  });
+}
+
+/** Snake head — the only part of a hanging snake that can hurt the player. */
+function generateSnakeTextures(scene: Phaser.Scene): void {
+  makeTexture(scene, 'snake_head', 26, 22, (g) => {
+    g.clear();
+    // Head
+    g.fillStyle(0x166534, 1);
+    g.fillEllipse(13, 11, 24, 18);
+    g.fillStyle(0x22c55e, 1);
+    g.fillEllipse(13, 9, 20, 13);
+    // Scale pattern
+    g.fillStyle(0x15803d, 1);
+    g.fillEllipse(9, 8, 5, 4);
+    g.fillEllipse(17, 8, 5, 4);
+    // Eyes
+    g.fillStyle(0xfef08a, 1);
+    g.fillCircle(8, 9, 3);
+    g.fillCircle(18, 9, 3);
+    g.fillStyle(0x1c1917, 1);
+    g.fillRect(7, 7, 2, 5);
+    g.fillRect(17, 7, 2, 5);
+    // Forked tongue
+    g.fillStyle(0xef4444, 1);
+    g.fillRect(12, 18, 2, 4);
+    g.fillRect(10, 21, 2, 1);
+    g.fillRect(14, 21, 2, 1);
+  });
+}
+
+/** The Recycle Vacuum pickup: a green nozzle with a recycling intake. */
+function generateEcoToolTextures(scene: Phaser.Scene): void {
+  makeTexture(scene, 'powerup_recycleVacuum', 30, 30, (g) => {
+    g.clear();
+    // Halo
+    g.fillStyle(0x38bdf8, 0.28);
+    g.fillCircle(15, 15, 14.5);
+    // Canister
+    g.fillStyle(0x0c4a6e, 1);
+    g.fillRect(8, 10, 15, 16);
+    g.fillStyle(0x0ea5e9, 1);
+    g.fillRect(9, 11, 13, 14);
+    g.fillStyle(0x7dd3fc, 1);
+    g.fillRect(9, 11, 13, 4);
+    // Intake funnel pointing up-left
+    g.fillStyle(0x155e75, 1);
+    g.fillTriangle(9, 12, 1, 3, 8, 2);
+    g.fillStyle(0x22d3ee, 1);
+    g.fillTriangle(9, 11, 3, 4, 8, 4);
+    // Recycling green core
+    g.fillStyle(0x16a34a, 1);
+    g.fillCircle(15, 20, 5);
+    g.fillStyle(0x86efac, 1);
+    g.fillTriangle(15, 16, 19, 23, 11, 23);
+    g.fillStyle(0x16a34a, 1);
+    g.fillTriangle(15, 19, 17, 22, 13, 22);
+    // Highlight
+    g.fillStyle(0xffffff, 0.75);
+    g.fillCircle(11, 13, 1.6);
+  });
+}
+
+// ── Mountain hazards + Raja Polusi ───────────────────────────
+
+function generateMountainTextures(scene: Phaser.Scene): void {
+  // Burung Pemakan Sampah — a scruffy scavenging bird, two wing poses.
+  const drawBird = (g: G, wing: 'up' | 'down', angry: boolean) => {
+    g.clear();
+    const cx = 24;
+    const cy = 18;
+    const wingY = wing === 'up' ? cy - 11 : cy + 3;
+
+    // Wings
+    g.fillStyle(0x44403c, 1);
+    g.fillEllipse(cx - 13, wingY, 24, 11);
+    g.fillEllipse(cx + 13, wingY, 24, 11);
+    g.fillStyle(0x57534e, 1);
+    g.fillEllipse(cx - 14, wingY - 1, 16, 6);
+    g.fillEllipse(cx + 14, wingY - 1, 16, 6);
+
+    // Body + tail
+    g.fillStyle(0x292524, 1);
+    g.fillEllipse(cx, cy + 2, 26, 17);
+    g.fillStyle(0x44403c, 1);
+    g.fillEllipse(cx, cy, 20, 12);
+    g.fillStyle(0x1c1917, 1);
+    g.fillTriangle(cx + 11, cy, cx + 22, cy - 5, cx + 22, cy + 6);
+
+    // Head + beak
+    g.fillStyle(0x292524, 1);
+    g.fillCircle(cx - 12, cy - 4, 8);
+    g.fillStyle(0xf59e0b, 1);
+    g.fillTriangle(cx - 19, cy - 5, cx - 30, cy - 2, cx - 19, cy + 2);
+    // Eye
+    g.fillStyle(0xfef3c7, 1);
+    g.fillCircle(cx - 14, cy - 6, 3);
+    g.fillStyle(angry ? 0xdc2626 : 0x1c1917, 1);
+    g.fillCircle(cx - 14, cy - 6, 1.6);
+  };
+
+  makeTexture(scene, 'bird_up', 48, 36, (g) => drawBird(g, 'up', false));
+  makeTexture(scene, 'bird_down', 48, 36, (g) => drawBird(g, 'down', false));
+  makeTexture(scene, 'bird_angry', 48, 36, (g) => drawBird(g, 'up', true));
+
+  // Nest the bird returns to.
+  makeTexture(scene, 'bird_nest', 44, 22, (g) => {
+    g.clear();
+    g.fillStyle(0x422006, 1);
+    g.fillEllipse(22, 14, 42, 16);
+    g.fillStyle(0x713f12, 1);
+    g.fillEllipse(22, 11, 36, 12);
+    g.fillStyle(0x292524, 1);
+    g.fillEllipse(22, 9, 24, 7);
+    // Twigs
+    g.fillStyle(0x57534e, 1);
+    g.fillRect(3, 12, 12, 2);
+    g.fillRect(30, 15, 12, 2);
+  });
+
+  // Batu longsor — a rough boulder, drawn round so rotation reads as rolling.
+  makeTexture(scene, 'rolling_boulder', 52, 52, (g) => {
+    g.clear();
+    g.fillStyle(0x1c1917, 1);
+    g.fillCircle(26, 26, 25);
+    g.fillStyle(0x57534e, 1);
+    g.fillCircle(26, 26, 23);
+    g.fillStyle(0x78716c, 1);
+    g.fillCircle(21, 20, 15);
+    g.fillStyle(0xa8a29e, 1);
+    g.fillCircle(18, 16, 6);
+    // Chips, so the spin is visible.
+    g.fillStyle(0x292524, 1);
+    g.fillCircle(35, 32, 5);
+    g.fillCircle(16, 36, 4);
+    g.fillCircle(38, 17, 3);
+  });
+
+  // Pollution ball the storm cloud lobs.
+  makeTexture(scene, 'pollution_ball', 26, 26, (g) => {
+    g.clear();
+    g.fillStyle(0x1c1917, 0.4);
+    g.fillCircle(13, 13, 12);
+    g.fillStyle(0x44403c, 1);
+    g.fillCircle(13, 13, 9);
+    g.fillStyle(0x6b21a8, 1);
+    g.fillCircle(11, 11, 6);
+    g.fillStyle(0xa855f7, 1);
+    g.fillCircle(10, 10, 3);
+  });
+
+  // Eco Energy Orb the player gathers and fires back.
+  makeTexture(scene, 'eco_orb', 28, 28, (g) => {
+    g.clear();
+    g.fillStyle(0x22c55e, 0.3);
+    g.fillCircle(14, 14, 13);
+    g.fillStyle(0x16a34a, 1);
+    g.fillCircle(14, 14, 10);
+    g.fillStyle(0x4ade80, 1);
+    g.fillCircle(14, 14, 7);
+    g.fillStyle(0xecfdf5, 1);
+    g.fillCircle(14, 14, 3.5);
+    g.fillStyle(0xffffff, 0.8);
+    g.fillCircle(10, 10, 2);
+  });
+
+  // The bolt the Eco Blaster fires.
+  makeTexture(scene, 'eco_shot', 30, 16, (g) => {
+    g.clear();
+    g.fillStyle(0x86efac, 0.5);
+    g.fillEllipse(15, 8, 30, 15);
+    g.fillStyle(0x22c55e, 1);
+    g.fillEllipse(15, 8, 24, 10);
+    g.fillStyle(0xecfdf5, 1);
+    g.fillEllipse(17, 8, 13, 5);
   });
 }

@@ -23,6 +23,10 @@ import {
   SCREEN_SHAKE_INTENSITY,
   THEME_COLORS,
   TRASH_COLORS,
+  TRASH_ITEMS,
+  TRASH_BODY_SIZE,
+  DEFAULT_TRASH_POOL,
+  CATEGORY_ICON_ITEM,
   BOOST_COLORS,
   BOOST_DURATIONS,
   COMBO_WINDOW_MS,
@@ -35,6 +39,18 @@ import {
   FLOOD_KNOCKBACK_Y,
   ECO_SURGE_MULTIPLIER,
   STEADFAST_KNOCKBACK_SCALE,
+  MUD_HEIGHT,
+  MUD_SPEED_MULTIPLIER,
+  PLAYER_BODY_WIDTH,
+  PLAYER_BODY_HEIGHT,
+  PLAYER_BODY_OFFSET_X,
+  PLAYER_BODY_OFFSET_Y,
+  POWERUP_DURATION_MS,
+  POWERUP_INFO,
+  POWERUP_JUMP_VELOCITY_MULTIPLIER,
+  POWERUP_SCALE,
+  POWERUP_SCORE,
+  POWERUP_WARNING_MS,
 } from '../constants';
 import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, SKIN_TRAIT_INFO, getRankForXp, getSkinById } from '../progression';
 import type { SkinTrait } from '../progression';
@@ -51,13 +67,27 @@ import type {
   LevelResult,
   GameCallbacks,
   BoostType,
+  PowerUpKind,
+  TrashDef,
+  TrashType,
+  TrashItemKind,
+  MoveAxis,
 } from '../types';
+import { drawPlatformArt } from '../platformArt';
 import { getDecorationKey } from '../textures';
 import * as sound from '../sound';
 import type { AwardOptions, EntityHost } from '../entities/EntityHost';
 import { GiantFlyManager } from '../entities/GiantFlyManager';
 import { ToxicWasteManager } from '../entities/ToxicWasteManager';
 import { TrashKingBoss } from '../entities/TrashKingBoss';
+import { MysteryBlockManager } from '../entities/MysteryBlockManager';
+import { ForestHazardManager } from '../entities/ForestHazardManager';
+import { RecycleVacuum, type StunnableFlyer } from '../entities/RecycleVacuum';
+import { CrumblingRockManager } from '../entities/CrumblingRockManager';
+import { MountainHazardManager } from '../entities/MountainHazardManager';
+import { TrashBirdManager } from '../entities/TrashBirdManager';
+import { FogBank } from '../entities/FogBank';
+import { PollutionKingBoss } from '../entities/PollutionKingBoss';
 
 interface EnemySprite extends Phaser.Physics.Arcade.Sprite {
   enemyData: {
@@ -69,7 +99,14 @@ interface EnemySprite extends Phaser.Physics.Arcade.Sprite {
 }
 
 interface TrashSprite extends Phaser.Physics.Arcade.Sprite {
-  trashData: { type: string; collected: boolean; baseY: number; phase: number };
+  trashData: {
+    type: TrashType;
+    /** The concrete object shown, which decides the emoji and the name. */
+    item: TrashItemKind;
+    collected: boolean;
+    baseY: number;
+    phase: number;
+  };
 }
 
 interface SecretSprite extends Phaser.Physics.Arcade.Sprite {
@@ -130,6 +167,31 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   private boss: TrashKingBoss | null = null;
   private bossDefeated = false;
   private goalLockHintAt = 0;
+
+  // ── Hidden block power-up ─────────────────────────────────
+  private mysteryBlocks: MysteryBlockManager | null = null;
+  /** True while the hero is grown, higher-jumping and shielded for one hit. */
+  private powerUpActive = false;
+  private powerUpUntil = 0;
+  private powerUpAura: Phaser.GameObjects.Arc | null = null;
+
+  // ── Forest level: obstacles, mud, checkpoints, Eco Tool ────
+  private forestHazards: ForestHazardManager | null = null;
+  private vacuum: RecycleVacuum | null = null;
+  private mudPatches: Array<{ left: number; right: number }> = [];
+  private inMud = false;
+  private mudSfxAt = 0;
+  private checkpoints: Array<{ x: number; y: number; reached: boolean; flag: Phaser.GameObjects.Graphics }> = [];
+  /** Where a lost life or a fall puts the hero back. */
+  private respawnX = 0;
+  private respawnY = 0;
+
+  // ── Mountain level: crumbling rock, storms, birds, Raja Polusi ─
+  private crumblingRocks: CrumblingRockManager | null = null;
+  private mountainHazards: MountainHazardManager | null = null;
+  private trashBirds: TrashBirdManager | null = null;
+  private fogBank: FogBank | null = null;
+  private pollutionBoss: PollutionKingBoss | null = null;
 
   private state: 'playing' | 'won' | 'lost' = 'playing';
   private invincibleUntil = 0;
@@ -248,6 +310,23 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.boss = null;
     this.bossDefeated = false;
     this.goalLockHintAt = 0;
+    this.mysteryBlocks = null;
+    this.powerUpActive = false;
+    this.powerUpUntil = 0;
+    this.powerUpAura = null;
+    this.forestHazards = null;
+    this.vacuum = null;
+    this.mudPatches = [];
+    this.inMud = false;
+    this.mudSfxAt = 0;
+    this.checkpoints = [];
+    this.respawnX = 0;
+    this.respawnY = 0;
+    this.crumblingRocks = null;
+    this.mountainHazards = null;
+    this.trashBirds = null;
+    this.fogBank = null;
+    this.pollutionBoss = null;
   }
 
   create(): void {
@@ -380,15 +459,11 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     ground.refreshBody();
     ground.setVisible(false);
 
-    // Brick platforms
+    // Platforms — the artwork varies by kind, the collision box never does.
     for (const p of this.level.platforms) {
       const bg = this.add.graphics();
-      bg.fillStyle(parseInt(theme.platformDark.slice(1), 16), 1);
-      bg.fillRect(p.x, p.y + 4, p.width, p.height);
-      bg.fillStyle(parseInt(theme.platform.slice(1), 16), 1);
-      bg.fillRect(p.x, p.y, p.width, p.height - 6);
-      bg.fillStyle(0xffffff, 0.15);
-      bg.fillRect(p.x, p.y, p.width, 4);
+      bg.setPosition(p.x, p.y);
+      drawPlatformArt(bg, p.type, p.width, p.height, theme);
 
       const plat = this.platforms.create(p.x + p.width / 2, p.y + p.height / 2, '__white') as Phaser.Physics.Arcade.Sprite;
       plat.setDisplaySize(p.width, p.height);
@@ -400,19 +475,39 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   // ── Trash ──────────────────────────────────────────────────
 
+  /**
+   * Which object a pickup shows. An explicit `item` wins; otherwise the level's
+   * themed pool for that category is cycled through, so a beach fills up with
+   * bottles and cans while a park gets wrappers and paper.
+   *
+   * `seen` counts pickups of this category only — cycling on the position in
+   * the whole list would keep landing on the same entry and waste the pool.
+   */
+  private resolveTrashItem(def: TrashDef, seen: number): TrashItemKind {
+    if (def.item) return def.item;
+    const pool = this.level.trashItems?.[def.type] ?? DEFAULT_TRASH_POOL[def.type];
+    return pool.length > 0 ? pool[seen % pool.length] : CATEGORY_ICON_ITEM[def.type];
+  }
+
   private createTrash(): void {
     this.trashGroup = this.physics.add.group();
+    const seenPerCategory: Partial<Record<TrashType, number>> = {};
 
-    for (const t of this.level.trash) {
-      const sprite = this.physics.add.sprite(t.x, t.y, `trash_${t.type}`) as TrashSprite;
+    this.level.trash.forEach((t) => {
+      const seen = seenPerCategory[t.type] ?? 0;
+      seenPerCategory[t.type] = seen + 1;
+      const item = this.resolveTrashItem(t, seen);
+      const sprite = this.physics.add.sprite(t.x, t.y, `trashitem_${item}`) as TrashSprite;
       sprite.trashData = {
         type: t.type,
+        item,
         collected: false,
         baseY: t.y,
         phase: Math.random() * Math.PI * 2,
       };
       sprite.setCollideWorldBounds(false);
       (sprite.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+      sprite.setSize(TRASH_BODY_SIZE, TRASH_BODY_SIZE);
       sprite.setImmovable(true);
       this.tweens.add({
         targets: sprite,
@@ -423,7 +518,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         ease: 'Sine.inOut',
       });
       this.trashGroup.add(sprite);
-    }
+    });
   }
 
   // ── Secrets ────────────────────────────────────────────────
@@ -593,8 +688,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.player.setCollideWorldBounds(true);
     this.player.setBounce(0);
     this.player.setGravityY(GRAVITY);
-    this.player.setSize(22, 38);
-    this.player.setOffset(7, 14);
+    this.player.setSize(PLAYER_BODY_WIDTH, PLAYER_BODY_HEIGHT);
+    this.player.setOffset(PLAYER_BODY_OFFSET_X, PLAYER_BODY_OFFSET_Y);
     this.player.setMaxVelocity(MAX_JUMP_SPEED, MAX_FALL_SPEED);
 
     this.anims.create({
@@ -634,15 +729,11 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       const centerX = p.x + p.width / 2;
       const centerY = p.y + p.height / 2;
 
-      // Drawn around a local origin so the visual can travel with the body.
+      // Drawn from its own origin so the visual can simply be repositioned as
+      // the body travels.
       const bg = this.add.graphics();
-      bg.fillStyle(parseInt(theme.platformDark.slice(1), 16), 1);
-      bg.fillRect(-p.width / 2, -p.height / 2 + 4, p.width, p.height);
-      bg.fillStyle(parseInt(theme.platform.slice(1), 16), 1);
-      bg.fillRect(-p.width / 2, -p.height / 2, p.width, p.height - 6);
-      bg.fillStyle(0xffffff, 0.15);
-      bg.fillRect(-p.width / 2, -p.height / 2, p.width, 4);
-      bg.setPosition(centerX, centerY);
+      drawPlatformArt(bg, p.kind ?? 'brick', p.width, p.height, theme);
+      bg.setPosition(p.x, p.y);
       bg.setDepth(14);
 
       const plat = this.movingPlatformGroup.create(centerX, centerY, '__white') as Phaser.Physics.Arcade.Sprite;
@@ -655,13 +746,21 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       body.setAllowGravity(false);
       // Driven by position in updateMovingPlatforms, so no residual velocity.
       body.setVelocity(0, 0);
+      // The game object is the source of truth here. Without this, Arcade's
+      // postUpdate adds the frame's manual delta on top of the position we just
+      // set, and the platform overshoots its authored range by ~70% — enough to
+      // sink a vertical lift below the ground line.
+      body.moves = false;
       plat.setData('range', p.range);
       plat.setData('startX', centerX);
+      plat.setData('startY', centerY);
+      plat.setData('axis', p.axis ?? 'horizontal');
       plat.setData('speed', p.speed);
       plat.setData('phase', p.phase);
       plat.setData('width', p.width);
       plat.setData('height', p.height);
       plat.setData('prevX', centerX);
+      plat.setData('prevY', centerY);
       plat.setData('gfx', bg);
     }
   }
@@ -688,10 +787,26 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   private updateFlyingEnemies(): void {
+    const now = this.time.now;
     this.flyingEnemyGroup.getChildren().forEach((obj) => {
       const sprite = obj as Phaser.Physics.Arcade.Sprite;
       if (!sprite.getData('alive')) return;
       if (!sprite.body) return;
+
+      // Dazed by the Recycle Vacuum: bob in place instead of patrolling.
+      const stunnedUntil = (sprite.getData('stunnedUntil') as number) ?? 0;
+      if (now < stunnedUntil) {
+        sprite.y += Math.sin(now / 160) * 0.4;
+        sprite.setRotation(Math.sin(now / 190) * 0.4);
+        sprite.body.updateFromGameObject();
+        return;
+      }
+      if (stunnedUntil > 0) {
+        sprite.setData('stunnedUntil', 0);
+        sprite.clearTint();
+        sprite.setRotation(0);
+      }
+
       const startX = sprite.getData('startX') as number;
       const startY = sprite.getData('startY') as number;
       const range = sprite.getData('range') as number;
@@ -747,6 +862,54 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       this.toxicWaste = new ToxicWasteManager(this, toxic);
     }
 
+    const logs = this.level.swayingLogs ?? [];
+    const snakes = this.level.hangingSnakes ?? [];
+    if (logs.length > 0 || snakes.length > 0) {
+      this.forestHazards = new ForestHazardManager(this, logs, snakes);
+    }
+
+    this.createMudPatches();
+    this.createCheckpoints();
+
+    const rocks = this.level.crumblingRocks ?? [];
+    if (rocks.length > 0) {
+      this.crumblingRocks = new CrumblingRockManager(this, rocks);
+    }
+
+    const zones = this.level.lightningZones ?? [];
+    const boulders = this.level.rollingBoulders ?? [];
+    const falls = this.level.waterfalls ?? [];
+    if (zones.length > 0 || boulders.length > 0 || falls.length > 0) {
+      this.mountainHazards = new MountainHazardManager(this, zones, boulders, falls);
+    }
+
+    const birds = this.level.trashBirds ?? [];
+    if (birds.length > 0) {
+      this.trashBirds = new TrashBirdManager(this, birds);
+    }
+
+    if (this.level.fog) {
+      this.fogBank = new FogBank(this, this.level.fog);
+    }
+
+    if (this.level.pollutionBoss) {
+      this.pollutionBoss = new PollutionKingBoss(
+        this,
+        this.level.pollutionBoss,
+        () => this.onPollutionBossDefeated(),
+        (charged) => this.callbacks.onThrowReadyChange?.(charged)
+      );
+    }
+
+    const blocks = this.level.mysteryBlocks ?? [];
+    if (blocks.length > 0) {
+      this.mysteryBlocks = new MysteryBlockManager(this, blocks, {
+        levelWidth: this.level.width,
+        movingPlatforms: this.movingPlatformGroup,
+        onCollect: (kind, x, y) => this.collectPowerUp(kind, x, y),
+      });
+    }
+
     if (this.level.boss) {
       this.boss = new TrashKingBoss(
         this,
@@ -757,10 +920,124 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     }
   }
 
+  // ── Mud ────────────────────────────────────────────────────
+
+  /**
+   * Boggy ground. Purely a speed modifier — it is drawn into the floor rather
+   * than given a body, so it can never block a jump or trap the player.
+   */
+  private createMudPatches(): void {
+    const defs = this.level.mudPatches ?? [];
+    if (defs.length === 0) return;
+
+    const groundTop = GAME_HEIGHT - 80;
+    const g = this.add.graphics();
+    g.setDepth(9);
+
+    for (const patch of defs) {
+      this.mudPatches.push({ left: patch.x, right: patch.x + patch.width });
+
+      g.fillStyle(0x422006, 1);
+      g.fillRect(patch.x, groundTop, patch.width, MUD_HEIGHT);
+      g.fillStyle(0x57534e, 1);
+      g.fillRect(patch.x, groundTop, patch.width, MUD_HEIGHT - 6);
+      g.fillStyle(0x78716c, 0.7);
+      g.fillRect(patch.x, groundTop, patch.width, 3);
+
+      // Bubbles and reeds so the slow patch reads before it is stepped in.
+      for (let x = patch.x + 10; x < patch.x + patch.width - 6; x += 26) {
+        g.fillStyle(0x292524, 0.8);
+        g.fillEllipse(x, groundTop + 7, 12, 5);
+        g.fillStyle(0x4d7c0f, 0.9);
+        g.fillEllipse(x + 12, groundTop + 2, 9, 4);
+      }
+    }
+  }
+
+  private isOverMud(): boolean {
+    if (this.mudPatches.length === 0) return false;
+    const body = this.player.body;
+    if (!body) return false;
+    if (!body.blocked.down && !body.touching.down) return false;
+    // Only the level floor is muddy; standing on a log above it is clean.
+    if (body.bottom < GAME_HEIGHT - 84) return false;
+    return this.mudPatches.some((m) => this.player.x >= m.left && this.player.x <= m.right);
+  }
+
+  private updateMud(now: number): void {
+    const wasInMud = this.inMud;
+    this.inMud = this.isOverMud();
+    if (!this.inMud) return;
+
+    if (!wasInMud || now >= this.mudSfxAt) {
+      this.mudSfxAt = now + 420;
+      sound.playMud();
+      this.burst(this.player.x, this.player.y + 18, 0x78716c, 4);
+    }
+  }
+
+  // ── Checkpoints ────────────────────────────────────────────
+
+  private createCheckpoints(): void {
+    this.respawnX = this.level.playerStart.x;
+    this.respawnY = this.level.playerStart.y;
+
+    for (const cp of this.level.checkpoints ?? []) {
+      const flag = this.add.graphics();
+      flag.setDepth(13);
+      this.drawCheckpoint(flag, cp.x, cp.y, false);
+      this.checkpoints.push({ x: cp.x, y: cp.y, reached: false, flag });
+    }
+  }
+
+  /** A sapling in a planter: grey and bare until reached, green once claimed. */
+  private drawCheckpoint(g: Phaser.GameObjects.Graphics, x: number, y: number, reached: boolean): void {
+    g.clear();
+    g.fillStyle(0x57534e, 1);
+    g.fillRect(x - 14, y - 12, 28, 12);
+    g.fillStyle(reached ? 0x78350f : 0x44403c, 1);
+    g.fillRect(x - 12, y - 10, 24, 10);
+    g.fillStyle(0x713f12, 1);
+    g.fillRect(x - 2, y - 46, 4, 36);
+    const leaf = reached ? 0x22c55e : 0x6b7280;
+    g.fillStyle(leaf, 1);
+    g.fillEllipse(x - 11, y - 44, 20, 10);
+    g.fillEllipse(x + 11, y - 38, 20, 10);
+    g.fillStyle(reached ? 0x86efac : 0x9ca3af, 1);
+    g.fillEllipse(x, y - 52, 22, 12);
+  }
+
+  private updateCheckpoints(): void {
+    for (const cp of this.checkpoints) {
+      if (cp.reached) continue;
+      if (Math.abs(this.player.x - cp.x) > 40) continue;
+      if (Math.abs(this.player.y - cp.y) > 120) continue;
+
+      cp.reached = true;
+      this.respawnX = cp.x;
+      this.respawnY = cp.y - 40;
+      this.drawCheckpoint(cp.flag, cp.x, cp.y, true);
+      sound.playCheckpoint();
+      this.burst(cp.x, cp.y - 40, 0x22c55e, 16);
+      this.floatScore(cp.x, cp.y - 70, 'Checkpoint!', '#86efac');
+    }
+  }
+
+  /** Puts the hero back at the last checkpoint after a fall or a lost life. */
+  private respawnPlayer(): void {
+    this.endFlight();
+    this.endSurf();
+    this.player.setPosition(this.respawnX, this.respawnY);
+    this.player.setVelocity(0, 0);
+    this.jumpsLeft = 1;
+  }
+
   /** Hurls the recycled energy at the mini boss (Z key / mobile throw button). */
   public throwEnergy(): void {
     if (this.state !== 'playing') return;
     this.boss?.throwOrb();
+    // The summit's Eco Blaster shares the same key and mobile button.
+    this.pollutionBoss?.fire();
   }
 
   private onBossDefeated(): void {
@@ -791,7 +1068,129 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   private isGoalLocked(): boolean {
-    return !!this.level.boss && !this.bossDefeated;
+    const hasBoss = !!this.level.boss || !!this.level.pollutionBoss;
+    return hasBoss && !this.bossDefeated;
+  }
+
+  /**
+   * The summit clears: the storm turns white, the sun comes out, the fog lifts
+   * for good, birds return and flowers open along the ridge. Purely visual —
+   * the goal is already unlocked by the time this plays.
+   */
+  private onPollutionBossDefeated(): void {
+    this.bossDefeated = true;
+    this.unlockGoal();
+    // No more fog once the sky is clean.
+    this.fogBank = null;
+    sound.playSunrise();
+
+    const cam = this.cameras.main;
+    cam.flash(700, 255, 250, 230);
+
+    // Repaint the sky from storm grey to a clear morning.
+    const clearSky = this.add.graphics();
+    clearSky.setScrollFactor(0.1);
+    clearSky.setDepth(-1);
+    clearSky.fillGradientStyle(0x38bdf8, 0x38bdf8, 0xfef3c7, 0xfef3c7, 1);
+    clearSky.fillRect(0, 0, this.level.width, GAME_HEIGHT);
+    clearSky.setAlpha(0);
+    this.tweens.add({ targets: clearSky, alpha: 1, duration: 1600, ease: 'Sine.inOut' });
+
+    this.spawnSun();
+    this.time.delayedCall(700, () => this.spawnReturningBirds());
+    this.time.delayedCall(500, () => this.bloomFlowers());
+
+    this.time.delayedCall(1500, () => {
+      if (this.state === 'playing') {
+        this.banner('Puncak bersih! Matahari kembali bersinar', '#fde047');
+      }
+    });
+  }
+
+  private spawnSun(): void {
+    const view = this.cameras.main.worldView;
+    const sun = this.add.graphics();
+    sun.setScrollFactor(0.15);
+    sun.setDepth(0);
+    sun.fillStyle(0xfef08a, 0.45);
+    sun.fillCircle(0, 0, 62);
+    sun.fillStyle(0xfde047, 1);
+    sun.fillCircle(0, 0, 42);
+    sun.fillStyle(0xfef9c3, 1);
+    sun.fillCircle(-10, -12, 18);
+    sun.setPosition(view.x + view.width * 0.72, 180);
+    sun.setAlpha(0);
+
+    this.tweens.add({ targets: sun, alpha: 1, y: 92, duration: 2000, ease: 'Sine.out' });
+    this.tweens.add({
+      targets: sun,
+      scale: { from: 0.94, to: 1.06 },
+      duration: 1800,
+      yoyo: true,
+      repeat: -1,
+      delay: 2000,
+    });
+  }
+
+  /** Small birds sweeping back across the ridge, now that the air is clean. */
+  private spawnReturningBirds(): void {
+    const view = this.cameras.main.worldView;
+    for (let i = 0; i < 7; i++) {
+      const bird = this.add.graphics();
+      bird.setDepth(6);
+      bird.lineStyle(2.5, 0x1e293b, 0.75);
+      bird.beginPath();
+      bird.moveTo(-9, 0);
+      bird.lineTo(0, -5);
+      bird.lineTo(9, 0);
+      bird.strokePath();
+
+      const y = 70 + Math.random() * 130;
+      bird.setPosition(view.x - 60 - i * 90, y);
+      this.tweens.add({
+        targets: bird,
+        x: view.right + 120,
+        y: y - 40 - Math.random() * 40,
+        duration: 3400 + Math.random() * 1600,
+        delay: i * 220,
+        ease: 'Sine.inOut',
+        onComplete: () => bird.destroy(),
+      });
+    }
+  }
+
+  /** Flowers opening along the ridge under the boss arena. */
+  private bloomFlowers(): void {
+    const def = this.level.pollutionBoss;
+    if (!def) return;
+    const groundTop = GAME_HEIGHT - 80;
+    const colors = [0xf472b6, 0xfbbf24, 0xa78bfa, 0xf87171, 0xffffff];
+
+    for (let i = 0; i < 24; i++) {
+      const x = def.arenaStart + Math.random() * (def.arenaEnd - def.arenaStart);
+      const color = colors[i % colors.length];
+      const flower = this.add.graphics();
+      flower.setDepth(11);
+      flower.fillStyle(0x15803d, 1);
+      flower.fillRect(-1, 0, 2, 12);
+      flower.fillStyle(color, 1);
+      for (let p = 0; p < 5; p++) {
+        const a = (Math.PI * 2 * p) / 5;
+        flower.fillCircle(Math.cos(a) * 4, -2 + Math.sin(a) * 4, 3);
+      }
+      flower.fillStyle(0xfde047, 1);
+      flower.fillCircle(0, -2, 2);
+
+      flower.setPosition(x, groundTop + 2);
+      flower.setScale(0);
+      this.tweens.add({
+        targets: flower,
+        scale: 1,
+        duration: 520,
+        delay: i * 70,
+        ease: 'Back.out',
+      });
+    }
   }
 
   // ── EntityHost implementation ─────────────────────────────
@@ -1518,7 +1917,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
   /** Awards a piece of trash without touching combo or Eco Power (skill pickup). */
   private creditTrash(sprite: TrashSprite): void {
-    const colorHex = TRASH_COLORS[sprite.trashData.type as keyof typeof TRASH_COLORS];
+    const colorHex = TRASH_COLORS[sprite.trashData.type];
     const color = parseInt(colorHex.main.slice(1), 16);
     this.stats.score += TRASH_SCORE;
     this.stats.trashCollected++;
@@ -1732,6 +2131,218 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.coinsInLevel += COIN_REWARDS.boost;
     this.checkAchievements();
     this.emitStats();
+  }
+
+  // ── Hidden block power-up ─────────────────────────────────
+
+  /**
+   * Called by MysteryBlockManager the moment the player touches the item.
+   * Grants the Super Mario style buff: bigger hero, higher jump, and one free
+   * hit absorbed.
+   */
+  private collectPowerUp(kind: PowerUpKind, x: number, y: number): void {
+    if (this.state !== 'playing') return;
+    const info = POWERUP_INFO[kind];
+
+    sound.playPowerUp();
+    this.ecoParticleBurst(x, y);
+    this.floatScore(x, y - 14, `${info.label}!`, info.cssColor);
+    this.banner(`${info.label} aktif! Kebal 1 serangan`, info.cssColor);
+
+    this.stats.score += POWERUP_SCORE;
+    this.xpInLevel += XP_REWARDS.boost;
+    this.coinsInLevel += COIN_REWARDS.boost;
+    this.addEcoPower(ECO_POWER_GAIN.trash);
+
+    if (info.power === 'tool') {
+      this.startRecycleVacuum();
+    } else {
+      this.startPowerUp(info.main);
+    }
+    this.checkAchievements();
+    this.emitStats();
+  }
+
+  // ── Eco Tool: Recycle Vacuum ──────────────────────────────
+
+  private startRecycleVacuum(): void {
+    // Picking a second one up simply restarts the twelve seconds.
+    this.vacuum?.stop();
+    this.vacuum = new RecycleVacuum(this, this.player, {
+      collectibles: () => this.vacuumTargets(),
+      swallow: (sprite) => this.collectTrash(sprite as TrashSprite),
+      flyers: () => this.stunnableFlyers(),
+      onExpired: () => {
+        this.vacuum = null;
+        if (this.state === 'playing') {
+          this.banner('Recycle Vacuum habis', '#7dd3fc');
+        }
+      },
+    });
+  }
+
+  /** Loose trash the vacuum is allowed to drag in. */
+  private vacuumTargets(): Phaser.Physics.Arcade.Sprite[] {
+    return this.trashGroup.getChildren().filter((obj) => {
+      const t = obj as TrashSprite;
+      return t.active && !t.trashData.collected;
+    }) as Phaser.Physics.Arcade.Sprite[];
+  }
+
+  /**
+   * Small flyers the vacuum can daze — the plain pollution flies plus the giant
+   * flies. Ground enemies are deliberately left out: the tool clears the air so
+   * the player can move, it does not clear the level.
+   */
+  private stunnableFlyers(): StunnableFlyer[] {
+    const small: StunnableFlyer[] = this.flyingEnemyGroup.getChildren().map((obj) => {
+      const fly = obj as Phaser.Physics.Arcade.Sprite;
+      return {
+        sprite: fly,
+        stun: (untilMs: number) => {
+          fly.setData('stunnedUntil', untilMs);
+          fly.setTint(0x86efac);
+          fly.setVelocity(0, 0);
+        },
+        isStunned: () => this.time.now < ((fly.getData('stunnedUntil') as number) ?? 0),
+        isAlive: () => !!fly.getData('alive'),
+      };
+    });
+    return small
+      .concat(this.giantFlies?.stunnables() ?? [])
+      .concat(this.trashBirds?.stunnables() ?? []);
+  }
+
+  private startPowerUp(color: number): void {
+    // Grabbing a second item simply refreshes the window.
+    this.powerUpUntil = this.time.now + POWERUP_DURATION_MS;
+    if (this.powerUpActive) return;
+
+    this.powerUpActive = true;
+    this.setPlayerScale(POWERUP_SCALE);
+    this.spawnPowerUpAura(color);
+  }
+
+  /**
+   * Ends the buff — either because the 10s ran out or because it soaked a hit.
+   * Always safe to call: it is a no-op when no power-up is running.
+   */
+  private endPowerUp(consumedByHit: boolean): void {
+    if (!this.powerUpActive) return;
+    this.powerUpActive = false;
+    this.powerUpUntil = 0;
+    this.setPlayerScale(1);
+    this.destroyPowerUpAura();
+
+    sound.playPowerDown();
+    this.burst(this.player.x, this.player.y, consumedByHit ? 0xf87171 : 0x86efac, 14);
+    this.floatScore(
+      this.player.x,
+      this.player.y - 30,
+      consumedByHit ? 'Perisai Eco pecah!' : 'Kekuatan Eco habis',
+      consumedByHit ? '#fca5a5' : '#bbf7d0'
+    );
+  }
+
+  private updatePowerUp(now: number): void {
+    if (!this.powerUpActive) return;
+    if (now >= this.powerUpUntil) {
+      this.endPowerUp(false);
+      return;
+    }
+
+    const aura = this.powerUpAura;
+    if (!aura) return;
+    aura.setPosition(this.player.x, this.player.y);
+    // Blink through the final stretch so the player sees the buff running out.
+    const remaining = this.powerUpUntil - now;
+    aura.setVisible(remaining > POWERUP_WARNING_MS || Math.floor(remaining / 130) % 2 === 0);
+  }
+
+  /**
+   * Resizes the hero. The Arcade body scales its size *and* its offset with the
+   * sprite, so the whole hitbox grows around the sprite origin — which would
+   * bury the feet in the floor. The vertical shift below cancels that out so
+   * the hero grows upward from where they stand.
+   */
+  private setPlayerScale(scale: number): void {
+    const previous = this.player.scaleY;
+    if (previous === scale) return;
+
+    const feetOffset = (s: number) =>
+      s * (PLAYER_BODY_OFFSET_Y + PLAYER_BODY_HEIGHT - this.player.displayOriginY);
+
+    this.player.setScale(scale);
+    this.player.y -= feetOffset(scale) - feetOffset(previous);
+    this.player.body?.updateFromGameObject();
+  }
+
+  private spawnPowerUpAura(color: number): void {
+    this.destroyPowerUpAura();
+    const aura = this.add.circle(this.player.x, this.player.y, 40, color, 0.14);
+    aura.setStrokeStyle(3, color, 0.8);
+    aura.setDepth(9);
+    this.powerUpAura = aura;
+
+    this.tweens.add({
+      targets: aura,
+      scale: { from: 0.88, to: 1.12 },
+      duration: 620,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.inOut',
+    });
+  }
+
+  private destroyPowerUpAura(): void {
+    const aura = this.powerUpAura;
+    if (!aura) return;
+    this.powerUpAura = null;
+    this.tweens.killTweensOf(aura);
+    this.tweens.add({
+      targets: aura,
+      alpha: 0,
+      scale: 1.8,
+      duration: 260,
+      onComplete: () => aura.destroy(),
+    });
+  }
+
+  /** Green leaf-and-spark burst played when a power-up is picked up. */
+  private ecoParticleBurst(x: number, y: number): void {
+    const COUNT = 20;
+    for (let i = 0; i < COUNT; i++) {
+      const angle = (Math.PI * 2 * i) / COUNT + Math.random() * 0.25;
+      const isLeaf = i % 3 === 0;
+      const p = this.add.image(x, y, isLeaf ? 'leaf' : 'particle');
+      p.setTint(isLeaf ? 0x4ade80 : i % 2 === 0 ? 0x22c55e : 0xbbf7d0);
+      p.setDepth(40);
+      p.setScale(0.45 + Math.random() * 0.5);
+      const radius = 55 + Math.random() * 70;
+      this.tweens.add({
+        targets: p,
+        x: x + Math.cos(angle) * radius,
+        y: y + Math.sin(angle) * radius - 36,
+        angle: isLeaf ? 360 : 0,
+        alpha: 0,
+        scale: 0,
+        duration: 650 + Math.random() * 350,
+        ease: 'Cubic.out',
+        onComplete: () => p.destroy(),
+      });
+    }
+
+    const ring = this.add.circle(x, y, 14, 0x22c55e, 0);
+    ring.setStrokeStyle(4, 0x86efac, 0.9);
+    ring.setDepth(39);
+    this.tweens.add({
+      targets: ring,
+      scale: 4,
+      alpha: 0,
+      duration: 520,
+      ease: 'Cubic.out',
+      onComplete: () => ring.destroy(),
+    });
   }
 
   private updateActiveEffects(): void {
@@ -1965,6 +2576,52 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       });
     }
 
+    if (this.forestHazards) {
+      const forest = this.forestHazards;
+      // Logs are footing; snake heads are the hazard.
+      this.physics.add.collider(this.player, forest.logGroup);
+      this.physics.add.overlap(this.player, forest.snakeGroup, (_p, s) => {
+        forest.handleSnakeContact(s as Phaser.Physics.Arcade.Sprite);
+      });
+    }
+
+    if (this.crumblingRocks) {
+      const rocks = this.crumblingRocks;
+      this.physics.add.collider(this.player, rocks.group, (_p, r) => {
+        rocks.handleContact(r as Phaser.Physics.Arcade.Sprite);
+      });
+      this.physics.add.collider(this.enemyGroup, rocks.group);
+    }
+
+    if (this.mountainHazards) {
+      const mountain = this.mountainHazards;
+      this.physics.add.overlap(this.player, mountain.boulderGroup, (_p, b) => {
+        mountain.handleBoulderContact(b as Phaser.Physics.Arcade.Sprite);
+      });
+    }
+
+    if (this.trashBirds) {
+      const birds = this.trashBirds;
+      this.physics.add.overlap(this.player, birds.group, (_p, b) => {
+        birds.handleContact(b as Phaser.Physics.Arcade.Sprite);
+      });
+    }
+
+    if (this.pollutionBoss) {
+      const king = this.pollutionBoss;
+      this.physics.add.overlap(this.player, king.cloud, () => king.handleCloudContact());
+      this.physics.add.overlap(this.player, king.ballGroup, (_p, b) => {
+        king.handleBallContact(b as Phaser.Physics.Arcade.Sprite);
+      });
+      this.physics.add.overlap(this.player, king.orbGroup, (_p, o) => {
+        king.handleOrbPickup(o as Phaser.Physics.Arcade.Sprite);
+      });
+      // Sprite-first ordering, matching every other pair registered here.
+      this.physics.add.overlap(king.cloud, king.shotGroup, (_c, shot) => {
+        king.handleShotHit(shot as Phaser.Physics.Arcade.Sprite);
+      });
+    }
+
     if (this.boss) {
       const boss = this.boss;
       this.physics.add.overlap(this.player, boss.sprite, () => boss.handleBossContact());
@@ -1996,16 +2653,19 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     const onGround = this.player.body.blocked.down || this.player.body.touching.down;
     const inCoyote = now - this.lastGroundedTime <= COYOTE_TIME_MS;
 
+    // The eco power-up stacks multiplicatively on top of the jump boost item.
+    const powerJump = this.powerUpActive ? POWERUP_JUMP_VELOCITY_MULTIPLIER : 1;
+
     if (onGround || inCoyote) {
-      const jumpV = this.activeEffects.includes('jump') ? JUMP_VELOCITY * 1.35 : JUMP_VELOCITY;
-      this.player.setVelocityY(jumpV);
+      const boost = this.activeEffects.includes('jump') ? 1.35 : 1;
+      this.player.setVelocityY(JUMP_VELOCITY * boost * powerJump);
       this.jumpsLeft = 1; // one double jump remaining
       this.lastGroundedTime = 0;
       sound.playJump();
       this.burst(this.player.x, this.player.y + 18, 0xffffff, 5);
     } else if (this.jumpsLeft > 0) {
-      const jumpV = this.activeEffects.includes('jump') ? DOUBLE_JUMP_VELOCITY * 1.25 : DOUBLE_JUMP_VELOCITY;
-      this.player.setVelocityY(jumpV);
+      const boost = this.activeEffects.includes('jump') ? 1.25 : 1;
+      this.player.setVelocityY(DOUBLE_JUMP_VELOCITY * boost * powerJump);
       this.jumpsLeft = 0;
       sound.playJump();
       this.burst(this.player.x, this.player.y, 0x93c5fd, 8);
@@ -2015,8 +2675,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   private collectTrash(sprite: TrashSprite): void {
     if (sprite.trashData.collected) return;
     sprite.trashData.collected = true;
-    const colorHex = TRASH_COLORS[sprite.trashData.type as keyof typeof TRASH_COLORS];
+    const colorHex = TRASH_COLORS[sprite.trashData.type];
     const color = parseInt(colorHex.main.slice(1), 16);
+    const item = TRASH_ITEMS[sprite.trashData.item];
     this.bumpCombo();
     const multiplier = (this.combo >= COMBO_MAX ? COMBO_MAX : this.combo) * this.comboBoost();
     const totalScore = TRASH_SCORE * multiplier;
@@ -2027,15 +2688,52 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.coinsInLevel += COIN_REWARDS.trash;
     sound.playCollect();
     this.burst(sprite.x, sprite.y, color, 10);
-    if (multiplier > 1) {
-      this.floatScore(sprite.x, sprite.y - 20, `+${totalScore} x${multiplier}`, colorHex.light);
-    } else {
-      this.floatScore(sprite.x, sprite.y - 10, `+${totalScore}`, colorHex.light);
-    }
+    // Naming the object on every pickup is the teaching moment: the player
+    // learns to tell a plastic bottle from a glass one while playing.
+    const combo = multiplier > 1 ? ` x${multiplier}` : '';
+    this.floatPickupLabel(
+      sprite.x,
+      sprite.y - 12,
+      `+${totalScore}${combo} ${item.emoji} ${item.label}`,
+      colorHex.light
+    );
     sprite.destroy();
     this.addEcoPower(ECO_POWER_GAIN.trash);
     this.checkAchievements();
     this.emitStats();
+  }
+
+  /**
+   * Pickup callout: the emoji and the object's name rise and fade together.
+   * Wider than floatScore, so it gets a dark plate to stay legible over the
+   * level art, and is clamped to the camera so long names never run off-screen.
+   */
+  private floatPickupLabel(x: number, y: number, text: string, color: string): void {
+    const label = this.add.text(x, y, text, {
+      fontFamily: 'system-ui, "Segoe UI Emoji", sans-serif',
+      fontSize: '16px',
+      color,
+      fontStyle: 'bold',
+      backgroundColor: 'rgba(15, 23, 42, 0.55)',
+      padding: { x: 6, y: 3 },
+    });
+    label.setOrigin(0.5);
+    label.setDepth(45);
+    label.setShadow(1, 1, 'rgba(0,0,0,0.6)', 2);
+
+    const view = this.cameras.main.worldView;
+    const half = label.displayWidth / 2;
+    label.x = Phaser.Math.Clamp(x, view.x + half + 4, view.right - half - 4);
+
+    this.tweens.add({
+      targets: label,
+      y: y - 46,
+      alpha: 0,
+      scale: { from: 0.85, to: 1.15 },
+      duration: 1000,
+      ease: 'Cubic.out',
+      onComplete: () => label.destroy(),
+    });
   }
 
   private collectSecret(sprite: SecretSprite): void {
@@ -2104,6 +2802,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
     if (stomping) {
       this.collectFlyingEnemy(sprite);
+    } else if (this.time.now < ((sprite.getData('stunnedUntil') as number) ?? 0)) {
+      // Dazed flies are harmless — the vacuum clears a path, it does not fight.
     } else if (this.time.now > this.invincibleUntil) {
       this.hurtPlayer(sprite as unknown as EnemySprite);
     }
@@ -2146,7 +2846,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
   }
 
   /**
-   * Single damage pipeline: shield check, life loss, knockback away from
+   * Single damage pipeline: shield checks, life loss, knockback away from
    * `sourceX` and the invincibility window. Hazards pass a stronger
    * `knockUpVelocity` so the player is launched clear of the danger.
    */
@@ -2157,6 +2857,24 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       sound.playStomp();
       return;
     }
+
+    // Knockback — the Earth Guardian's footing keeps them closer to where they stood.
+    const dir = this.player.x < sourceX ? -1 : 1;
+    const knockScale = this.hasTrait('steadfast') ? STEADFAST_KNOCKBACK_SCALE : 1;
+
+    // The eco power-up soaks exactly one hit, Mario-style: the hero shrinks back
+    // to normal size instead of losing a life.
+    if (this.powerUpActive) {
+      this.invincibleUntil = this.time.now + INVINCIBILITY_MS;
+      this.resetCombo();
+      this.endPowerUp(true);
+      this.cameras.main.shake(SCREEN_SHAKE_DURATION / 1000, SCREEN_SHAKE_INTENSITY / 2000);
+      this.player.setVelocityX(dir * KNOCKBACK_VELOCITY * knockScale);
+      this.player.setVelocityY(knockUpVelocity * knockScale);
+      this.blinkInvincible();
+      return;
+    }
+
     this.invincibleUntil = this.time.now + INVINCIBILITY_MS;
     this.stats.lives--;
     this.resetCombo();
@@ -2165,16 +2883,22 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     // Screen shake
     this.cameras.main.shake(SCREEN_SHAKE_DURATION / 1000, SCREEN_SHAKE_INTENSITY / 1000);
 
-    // Knockback — the Earth Guardian's footing keeps them closer to where they stood.
-    const dir = this.player.x < sourceX ? -1 : 1;
-    const knockScale = this.hasTrait('steadfast') ? STEADFAST_KNOCKBACK_SCALE : 1;
     this.player.setVelocityX(dir * KNOCKBACK_VELOCITY * knockScale);
     this.player.setVelocityY(knockUpVelocity * knockScale);
 
     // Damage particles
     this.burst(this.player.x, this.player.y, 0xef4444, 12);
 
-    // Blink effect — a red tint flash, NOT opacity, so the hero never fades out.
+    this.blinkInvincible();
+
+    if (this.stats.lives <= 0) {
+      this.time.delayedCall(600, () => this.gameOver());
+    }
+    this.emitStats();
+  }
+
+  /** Red tint flash for the invincibility window — NOT opacity, so the hero never fades out. */
+  private blinkInvincible(): void {
     this.player.setAlpha(1);
     const blink = this.time.addEvent({
       delay: 120,
@@ -2192,11 +2916,6 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       blink.remove();
       if (this.player.active) this.player.clearTint();
     });
-
-    if (this.stats.lives <= 0) {
-      this.time.delayedCall(600, () => this.gameOver());
-    }
-    this.emitStats();
   }
 
   private reachGoal(): void {
@@ -2311,9 +3030,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         rankUp,
         newRankName: rankUp ? newRank.name : null,
         badgeName: null,
-        hasBoss: !!this.level.boss,
+        hasBoss: !!this.level.boss || !!this.level.pollutionBoss,
         bossDefeated: this.bossDefeated,
-        bossName: this.level.boss?.name ?? null,
+        bossName: this.level.boss?.name ?? this.level.pollutionBoss?.name ?? null,
         startLives: this.livesAtLevelStart,
         livesLost: Math.max(0, this.livesAtLevelStart - this.stats.lives),
       };
@@ -2409,13 +3128,15 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       }
     }
 
-    // Snappy horizontal movement (Mario-style)
+    // Snappy horizontal movement (Mario-style). Mud drags the top speed down
+    // but never the control, so a muddy stretch is slow rather than slippery.
+    const moveSpeed = this.inMud ? MOVE_SPEED * MUD_SPEED_MULTIPLIER : MOVE_SPEED;
     let targetVx = 0;
     if (left && !right) {
-      targetVx = -MOVE_SPEED;
+      targetVx = -moveSpeed;
       this.player.setFlipX(true);
     } else if (right && !left) {
-      targetVx = MOVE_SPEED;
+      targetVx = moveSpeed;
       this.player.setFlipX(false);
     }
 
@@ -2462,6 +3183,27 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     this.giantFlies?.update(delta);
     this.boss?.update(delta);
 
+    // Keep released power-ups patrolling their platform
+    this.mysteryBlocks?.update();
+
+    // Swaying logs and hanging snakes
+    this.forestHazards?.update();
+
+    // Summit: crumbling shelves, storms, scavenging birds, fog, the storm king
+    this.crumblingRocks?.update();
+    this.mountainHazards?.update(delta);
+    this.trashBirds?.update();
+    this.fogBank?.update(delta);
+    this.pollutionBoss?.update(delta);
+
+    // Tick the eco power-up window (size, jump, one-hit shield)
+    this.updatePowerUp(now);
+
+    // Eco Tool, mud and checkpoints
+    this.vacuum?.update(delta);
+    this.updateMud(now);
+    this.updateCheckpoints();
+
     // Update moving platforms
     this.updateMovingPlatforms();
 
@@ -2496,12 +3238,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         if (this.stats.lives <= 0) {
           this.gameOver();
         } else {
-          this.endFlight();
-          this.endSurf();
-          const start = this.level.playerStart;
-          this.player.setPosition(start.x, start.y);
-          this.player.setVelocity(0, 0);
-          this.jumpsLeft = 1;
+          this.respawnPlayer();
           this.invincibleUntil = this.time.now + INVINCIBILITY_MS;
         }
       }
@@ -2556,27 +3293,36 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       if (!plat.body) return;
 
       const startX = plat.getData('startX') as number;
+      const startY = plat.getData('startY') as number;
+      const axis = (plat.getData('axis') as MoveAxis) ?? 'horizontal';
       const range = plat.getData('range') as number;
       const speed = plat.getData('speed') as number;
       const phase = (plat.getData('phase') as number) ?? 0;
 
       // A single non-finite value here would put a NaN body into the Arcade
       // R-tree, which silently kills every overlap check in the level.
-      const newX = startX + Math.sin((this.time.now / 1000) * (speed / 60) + phase) * range;
-      if (!Number.isFinite(newX)) return;
+      const offset = Math.sin((this.time.now / 1000) * (speed / 60) + phase) * range;
+      if (!Number.isFinite(offset)) return;
+
+      const newX = axis === 'horizontal' ? startX + offset : startX;
+      const newY = axis === 'vertical' ? startY + offset : startY;
 
       const prevX = plat.getData('prevX') as number;
+      const prevY = plat.getData('prevY') as number;
       const dx = newX - prevX;
+      const dy = newY - prevY;
       plat.setData('prevX', newX);
+      plat.setData('prevY', newY);
       plat.x = newX;
+      plat.y = newY;
       plat.body.updateFromGameObject();
 
-      const gfx = plat.getData('gfx') as Phaser.GameObjects.Graphics | undefined;
-      gfx?.setPosition(newX, plat.y);
-
-      // Carry the player standing on top of it.
       const platWidth = plat.getData('width') as number;
       const platHeight = plat.getData('height') as number;
+      const gfx = plat.getData('gfx') as Phaser.GameObjects.Graphics | undefined;
+      gfx?.setPosition(newX - platWidth / 2, newY - platHeight / 2);
+
+      // Carry the player standing on top of it.
       if (
         this.player.body &&
         (this.player.body.blocked.down || this.player.body.touching.down) &&
@@ -2584,6 +3330,10 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         Math.abs(this.player.y - plat.y) < platHeight / 2 + this.player.body.halfHeight + 8
       ) {
         this.player.x += dx;
+        // A descending platform has to pull the rider with it, otherwise the
+        // player is left hanging in the air until gravity catches up and the
+        // ride reads as stuttering.
+        if (dy > 0) this.player.y += dy;
       }
     });
   }
