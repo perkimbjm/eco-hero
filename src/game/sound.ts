@@ -204,6 +204,13 @@ export function playPowerUp(): void {
   playTone({ freq: 1568, duration: 0.35, type: 'triangle', volume: 0.11, delay: 0.34 });
 }
 
+/** Pollution swallowing a power-up — the fanfare, soured and dragged down. */
+export function playPowerCorrupt(): void {
+  playTone({ freq: 520, freqEnd: 130, duration: 0.45, type: 'sawtooth', volume: 0.15 });
+  playTone({ freq: 260, freqEnd: 70, duration: 0.5, type: 'square', volume: 0.11, delay: 0.06 });
+  playNoise(0.35, 0.09);
+}
+
 /** The eco shield breaking, or the power-up simply running out. */
 export function playPowerDown(): void {
   const fall = [1047, 784, 523, 392];

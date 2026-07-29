@@ -51,6 +51,7 @@ import {
   POWERUP_SCALE,
   POWERUP_SCORE,
   POWERUP_WARNING_MS,
+  EMPOWERED_ENEMY_SCALE,
 } from '../constants';
 import { XP_REWARDS, COIN_REWARDS, LEVEL_CHALLENGES, SKIN_TRAIT_INFO, getRankForXp, getSkinById } from '../progression';
 import type { SkinTrait } from '../progression';
@@ -95,6 +96,10 @@ interface EnemySprite extends Phaser.Physics.Arcade.Sprite {
     range: number;
     alive: boolean;
     defeatedTimer: number;
+    /** Stomps still needed. 1 normally, 2 after it swallows a power-up. */
+    hp: number;
+    /** True while this blob is running on a stolen power-up. */
+    empowered: boolean;
   };
 }
 
@@ -564,6 +569,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         range: e.range,
         alive: true,
         defeatedTimer: 0,
+        hp: 1,
+        empowered: false,
       };
       sprite.setCollideWorldBounds(true);
       sprite.setBounce(0);
@@ -778,6 +785,8 @@ export class GameScene extends Phaser.Scene implements EntityHost {
       sprite.setData('amplitude', e.amplitude);
       sprite.setData('speed', e.speed);
       sprite.setData('alive', true);
+      sprite.setData('hp', 1);
+      sprite.setData('empowered', false);
       sprite.setData('halfWidth', 18);
       sprite.setData('halfHeight', 14);
       sprite.setImmovable(true);
@@ -822,9 +831,40 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     });
   }
 
+  /** Airborne pollution can steal a power-up too, with the same consequence. */
+  private empowerFlyingEnemy(sprite: Phaser.Physics.Arcade.Sprite): void {
+    if (!sprite.getData('alive') || sprite.getData('empowered')) return;
+    sprite.setData('empowered', true);
+    sprite.setData('hp', 2);
+    sprite.setScale(EMPOWERED_ENEMY_SCALE);
+    sprite.body?.updateFromGameObject();
+    sprite.setTint(0xc084fc);
+
+    sound.playPowerCorrupt();
+    this.cameras.main.shake(0.18, 0.006);
+    this.burst(sprite.x, sprite.y, 0x7e22ce, 20);
+    this.floatScore(sprite.x, sprite.y - 26, 'Polusi membesar!', '#e9d5ff');
+    this.banner('Polusi menelan power-up! Injak dua kali', '#d8b4fe');
+  }
+
   private collectFlyingEnemy(sprite: Phaser.Physics.Arcade.Sprite): void {
     if (!sprite.getData('alive')) return;
     if (this.state !== 'playing') return;
+
+    const hp = (sprite.getData('hp') as number) ?? 1;
+    if (hp > 1) {
+      sprite.setData('hp', hp - 1);
+      sprite.setData('empowered', false);
+      sprite.setScale(1);
+      sprite.body?.updateFromGameObject();
+      sprite.clearTint();
+      this.player.setVelocityY(BOUNCE_VELOCITY);
+      sound.playStomp();
+      this.burst(sprite.x, sprite.y, 0xa855f7, 14);
+      this.floatScore(sprite.x, sprite.y - 14, 'Sekali lagi!', '#e9d5ff');
+      return;
+    }
+
     sprite.setData('alive', false);
     sprite.body!.enable = false;
     this.stats.score += ENEMY_SCORE;
@@ -908,6 +948,7 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         movingPlatforms: this.movingPlatformGroup,
         onCollect: (kind, x, y) => this.collectPowerUp(kind, x, y),
       });
+      this.wirePowerUpTheft();
     }
 
     if (this.level.boss) {
@@ -918,6 +959,29 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         (charged) => this.callbacks.onThrowReadyChange?.(charged)
       );
     }
+  }
+
+  /**
+   * Lets pollution race the player to a released power-up. Whichever side
+   * touches it first gets it: the player is buffed, or the blob is.
+   */
+  private wirePowerUpTheft(): void {
+    const blocks = this.mysteryBlocks;
+    if (!blocks) return;
+
+    this.physics.add.overlap(this.enemyGroup, blocks.itemGroup, (e, item) => {
+      const enemy = e as EnemySprite;
+      if (!enemy.enemyData?.alive) return;
+      if (!blocks.absorbedByEnemy(item as Phaser.Physics.Arcade.Sprite)) return;
+      this.empowerEnemy(enemy);
+    });
+
+    this.physics.add.overlap(this.flyingEnemyGroup, blocks.itemGroup, (f, item) => {
+      const fly = f as Phaser.Physics.Arcade.Sprite;
+      if (!fly.getData('alive')) return;
+      if (!blocks.absorbedByEnemy(item as Phaser.Physics.Arcade.Sprite)) return;
+      this.empowerFlyingEnemy(fly);
+    });
   }
 
   // ── Mud ────────────────────────────────────────────────────
@@ -2809,7 +2873,63 @@ export class GameScene extends Phaser.Scene implements EntityHost {
     }
   }
 
+  /**
+   * Pollution got to the power-up first. The blob swells on it and now needs
+   * two stomps — the player loses the buff and inherits a tougher enemy.
+   */
+  private empowerEnemy(enemy: EnemySprite): void {
+    const data = enemy.enemyData;
+    if (!data.alive || data.empowered) return;
+
+    data.empowered = true;
+    data.hp = 2;
+    this.setEnemyScale(enemy, EMPOWERED_ENEMY_SCALE);
+    enemy.setTint(0xc084fc);
+
+    sound.playPowerCorrupt();
+    this.cameras.main.shake(0.18, 0.006);
+    this.burst(enemy.x, enemy.y, 0x7e22ce, 20);
+    this.floatScore(enemy.x, enemy.y - 30, 'Polusi membesar!', '#e9d5ff');
+    this.banner('Polusi menelan power-up! Injak dua kali', '#d8b4fe');
+
+    this.tweens.add({
+      targets: enemy,
+      scaleX: EMPOWERED_ENEMY_SCALE * 1.15,
+      scaleY: EMPOWERED_ENEMY_SCALE * 0.9,
+      duration: 160,
+      yoyo: true,
+      ease: 'Sine.inOut',
+    });
+  }
+
+  /**
+   * Resizes an enemy while keeping its feet on the ground. The Arcade body
+   * scales with the sprite, so growing around the centre would otherwise bury
+   * it in the floor — the same correction the player's grow buff needs.
+   */
+  private setEnemyScale(enemy: EnemySprite, scale: number): void {
+    const previous = enemy.scaleY;
+    if (previous === scale) return;
+    const feet = (s: number) => s * (enemy.height - enemy.displayOriginY);
+    enemy.setScale(scale);
+    enemy.y -= feet(scale) - feet(previous);
+    enemy.body?.updateFromGameObject();
+  }
+
   private stompEnemy(enemy: EnemySprite): void {
+    // An empowered blob soaks the first stomp and shrinks back to normal.
+    if (enemy.enemyData.hp > 1) {
+      enemy.enemyData.hp--;
+      enemy.enemyData.empowered = false;
+      this.setEnemyScale(enemy, 1);
+      enemy.clearTint();
+      this.player.setVelocityY(BOUNCE_VELOCITY);
+      sound.playStomp();
+      this.burst(enemy.x, enemy.y, 0xa855f7, 14);
+      this.floatScore(enemy.x, enemy.y - 14, 'Sekali lagi!', '#e9d5ff');
+      return;
+    }
+
     enemy.enemyData.alive = false;
     enemy.enemyData.defeatedTimer = 600;
     enemy.setVelocityX(0);
@@ -3380,7 +3500,9 @@ export class GameScene extends Phaser.Scene implements EntityHost {
 
     // During a gust: create visible wind streak particles + push player
     if (this.windActive) {
-      // Spawn wind streaks across the visible screen
+      // Wind streaks. The gust below pushes the player LEFT, so the streaks
+      // have to travel right-to-left as well — they used to drift the other way
+      // and told the player the opposite of what the physics was doing.
       const camScroll = this.cameras.main.scrollX;
       for (let i = 0; i < 3; i++) {
         const streak = this.add.graphics();
@@ -3389,13 +3511,21 @@ export class GameScene extends Phaser.Scene implements EntityHost {
         const len = 30 + Math.random() * 50;
         streak.lineStyle(2, 0xffffff, 0.5);
         streak.beginPath();
-        streak.moveTo(x, y);
-        streak.lineTo(x + len, y);
+        // Tail trails off to the right, behind the leading edge.
+        streak.moveTo(x + len, y);
+        streak.lineTo(x, y);
+        streak.strokePath();
+        // Chevron on the leading (left) end, so the direction reads instantly.
+        streak.lineStyle(2, 0xffffff, 0.65);
+        streak.beginPath();
+        streak.moveTo(x + 7, y - 4);
+        streak.lineTo(x, y);
+        streak.lineTo(x + 7, y + 4);
         streak.strokePath();
         streak.setDepth(60);
         this.tweens.add({
           targets: streak,
-          x: streak.x + 200,
+          x: streak.x - 200,
           alpha: 0,
           duration: 400,
           onComplete: () => streak.destroy(),

@@ -8,8 +8,10 @@ import {
   MYSTERY_BLOCK_SIZE,
   POWERUP_EMERGE_MS,
   POWERUP_FOOTING_PROBE_PX,
+  POWERUP_EXPIRY_WARNING_MS,
   POWERUP_INFO,
   POWERUP_LEDGE_PROBE_PX,
+  POWERUP_LIFETIME_MS,
   POWERUP_WALK_SPEED,
 } from '../constants';
 import type { MysteryBlockDef, PowerUpKind } from '../types';
@@ -45,6 +47,10 @@ interface PowerUpSprite extends Phaser.Physics.Arcade.Sprite {
     /** Last position where the item was confirmed standing on solid ground. */
     safeX: number;
     safeY: number;
+    /** When the item fades out of play; set once it starts walking. */
+    expiresAt: number;
+    /** True once it has been eaten by pollution or has timed out. */
+    lost: boolean;
   };
 }
 
@@ -235,6 +241,8 @@ export class MysteryBlockManager {
       collected: false,
       safeX: x,
       safeY: toY,
+      expiresAt: 0,
+      lost: false,
     };
     item.setDepth(ITEM_DEPTH);
     item.setSize(ITEM_BODY, ITEM_BODY);
@@ -285,6 +293,9 @@ export class MysteryBlockManager {
     item.powerData.walking = true;
     item.powerData.safeX = item.x;
     item.powerData.safeY = item.y;
+    // The countdown starts here, not at the block bump: the emerge animation
+    // should not eat into the window the player has to reach it.
+    item.powerData.expiresAt = this.scene.time.now + POWERUP_LIFETIME_MS;
 
     this.scene.tweens.add({
       targets: item,
@@ -311,10 +322,20 @@ export class MysteryBlockManager {
 
   private updateItem(item: PowerUpSprite): void {
     const data = item.powerData;
-    if (!item.active || data.collected || !data.walking) return;
+    if (!item.active || data.collected || data.lost || !data.walking) return;
 
     const body = item.body as Phaser.Physics.Arcade.Body | null;
     if (!body || !body.enable) return;
+
+    // Nine seconds in play, then it is gone.
+    const now = this.scene.time.now;
+    const remaining = data.expiresAt - now;
+    if (remaining <= 0) {
+      this.expire(item);
+      return;
+    }
+    // Blink through the last stretch so running out never feels arbitrary.
+    item.setAlpha(remaining > POWERUP_EXPIRY_WARNING_MS || Math.floor(remaining / 130) % 2 === 0 ? 1 : 0.35);
 
     // Should never happen now that the item collides with the platforms, but if
     // physics ever drops it the item is recovered, never lost.
@@ -410,9 +431,70 @@ export class MysteryBlockManager {
     this.host.burst(x, y, POWERUP_INFO[data.kind].main, 8);
   }
 
+  /** The window closed — the item dissolves and the chance is gone. */
+  private expire(item: PowerUpSprite): void {
+    const data = item.powerData;
+    if (data.lost || data.collected) return;
+    data.lost = true;
+
+    this.detach(item, 360);
+    sound.playPowerDown();
+    this.host.burst(item.x, item.y, 0x94a3b8, 10);
+    this.host.floatScore(item.x, item.y - 14, 'Hilang!', '#cbd5e1');
+
+    this.scene.tweens.add({
+      targets: item,
+      alpha: 0,
+      scale: 0.4,
+      y: item.y - 14,
+      duration: 320,
+    });
+  }
+
+  /**
+   * Pollution reached the item first. The item is destroyed and the enemy that
+   * swallowed it is supercharged — the manager only reports it; growing the
+   * enemy is the scene's job, since it owns enemy state.
+   */
+  absorbedByEnemy(hit: Phaser.Physics.Arcade.Sprite): boolean {
+    const item = hit as PowerUpSprite;
+    const data = item.powerData;
+    if (!data || data.collected || data.lost || !data.walking) return false;
+    data.lost = true;
+
+    this.detach(item, 280);
+    sound.playPowerCorrupt();
+    this.host.burst(item.x, item.y, 0x7e22ce, 16);
+
+    this.scene.tweens.add({
+      targets: item,
+      alpha: 0,
+      scale: 0.3,
+      duration: 240,
+    });
+    return true;
+  }
+
+  /**
+   * Takes an item out of play immediately — body off, out of the group, out of
+   * the update list — and guarantees the sprite is gone shortly after.
+   *
+   * The removal must not depend on the fade tween's onComplete: an interrupted
+   * tween would leave a half-faded, uncollectable ghost sitting in the level.
+   * The timer is driven by the scene clock, which always advances.
+   */
+  private detach(item: PowerUpSprite, destroyAfterMs: number): void {
+    this.scene.tweens.killTweensOf(item);
+    if (item.body) item.body.enable = false;
+    this.itemGroup.remove(item);
+    const index = this.items.indexOf(item);
+    if (index >= 0) this.items.splice(index, 1);
+    this.scene.time.delayedCall(destroyAfterMs, () => item.destroy());
+  }
+
   private collect(item: PowerUpSprite): void {
     const data = item.powerData;
-    if (data.collected || !data.walking) return;
+    if (data.collected || data.lost || !data.walking) return;
     data.collected = true;
 
     this.scene.tweens.killTweensOf(item);

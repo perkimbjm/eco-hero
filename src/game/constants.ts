@@ -62,6 +62,14 @@ export const POWERUP_EMERGE_MS = 520;
 /** Patrol speed once the item lands — slow enough to always be catchable. */
 export const POWERUP_WALK_SPEED = 90;
 /**
+ * How long a released item stays in play before it fades away. Timed from the
+ * moment it can actually be picked up, not from the block bump, so the player
+ * always gets the full window.
+ */
+export const POWERUP_LIFETIME_MS = 9000;
+/** Tail of the lifetime where the item blinks as a "hurry up" tell. */
+export const POWERUP_EXPIRY_WARNING_MS = 2500;
+/**
  * How far ahead of itself the item checks for solid ground. Anything wider than
  * roughly half its body would turn it around while still safely on a ledge.
  */
@@ -78,6 +86,8 @@ export const POWERUP_JUMP_HEIGHT_MULTIPLIER = 1.15;
 export const POWERUP_JUMP_VELOCITY_MULTIPLIER = Math.sqrt(POWERUP_JUMP_HEIGHT_MULTIPLIER);
 export const POWERUP_DURATION_MS = 10000;
 export const POWERUP_SCORE = 400;
+/** How much a pollution enemy swells after swallowing a power-up. */
+export const EMPOWERED_ENEMY_SCALE = 1.5;
 /** Last stretch of the buff where the aura blinks as a run-out warning. */
 export const POWERUP_WARNING_MS = 2000;
 
